@@ -9,7 +9,11 @@ cd "$(dirname "$0")/../.."
 userdir=build/tests/userdir
 log=build/tests/app.log
 rm -rf "$userdir"
-mkdir -p "$userdir"
+mkdir -p "$userdir/plugins/Fundamental"
+# The acceptance patch uses Fundamental modules; in dev mode plugins load from the user dir
+cp -r plugins/Fundamental/plugin.dll plugins/Fundamental/plugin.json plugins/Fundamental/res "$userdir/plugins/Fundamental/"
+# No welcome tips covering the screenshots
+echo '{"showTipsOnLaunch": false}' > "$userdir/settings.json"
 
 # -d: development mode (log to stderr, system dir = this dir), -u: user dir.
 # timeout guards against a modal dialog or a hang blocking forever.

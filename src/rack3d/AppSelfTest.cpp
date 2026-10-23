@@ -3,6 +3,8 @@
 #include <rack3d/settings.hpp>
 #include <rack3d/Placement.hpp>
 #include <app/RackWidget.hpp>
+#include <app/CableWidget.hpp>
+#include <color.hpp>
 #include <system.hpp>
 #include <app/Scene.hpp>
 #include <engine/Engine.hpp>
@@ -586,6 +588,95 @@ int runAppSelfTest() {
 			APP->window->step();
 		check(glGetError() == GL_NO_ERROR, "chrome: no GL errors");
 		APP->window->screenshot(asset::user("chrome.png"));
+	}
+
+	// Phase 2 acceptance patch: a voice spread over all six racks, every cable crossing racks
+	resetRack();
+	{
+		std::string path = asset::system("tests/rack3d/acceptance.vcv");
+		auto loadAcceptance = [&]() -> bool {
+			try {
+				APP->patch->load(path);
+				return true;
+			}
+			catch (Exception& e) {
+				WARN("%s", e.what());
+				return false;
+			}
+		};
+		// The engine's view of the patch, minus runtime state ("data"), which changes while it runs
+		auto engineJson = [&]() {
+			json_t* engineJ = APP->engine->toJson();
+			size_t i;
+			json_t* moduleJ;
+			json_array_foreach(json_object_get(engineJ, "modules"), i, moduleJ)
+				json_object_del(moduleJ, "data");
+			return engineJ;
+		};
+
+		settings::placementsEnabled = true;
+		check(loadAcceptance(), "acceptance: the patch loads");
+		check(rack->getModules().size() == 7 && rack->getCables().size() == 7, "acceptance: all 7 modules and 7 cables are there");
+		std::map<int64_t, int> expected = {{1, 0}, {3, 1}, {6, 1}, {2, 2}, {5, 3}, {4, 4}, {7, 5}};
+		bool inRacks = true;
+		for (auto pair : expected) {
+			app::ModuleWidget* mw = rack->getModule(pair.first);
+			rack3d::Placement* p = mw ? rack->getLayout()->placementOf(mw->getGridBox()) : NULL;
+			inRacks = inRacks && p && p->id == pair.second;
+		}
+		check(inRacks, "acceptance: every module is in its rack (VCO front ... Audio bottom)");
+		bool crossing = true;
+		for (app::CableWidget* cw : rack->getCables()) {
+			rack3d::Placement* in = rack->getLayout()->placementOf(rack->getModule(cw->cable->inputModule->id)->getGridBox());
+			rack3d::Placement* out = rack->getLayout()->placementOf(rack->getModule(cw->cable->outputModule->id)->getGridBox());
+			crossing = crossing && in && out && in != out;
+		}
+		check(crossing, "acceptance: every cable crosses between racks");
+
+		// It makes sound: the VCA's output moves (the engine's fallback thread runs it without an audio device)
+		app::ModuleWidget* vca = rack->getModule(4);
+		float peak = 0;
+		for (int i = 0; i < 150 && vca; i++) {
+			peak = std::fmax(peak, std::fabs(vca->module->outputs[0].getVoltage()));
+			system::sleep(0.01);
+		}
+		check(peak > 0.1f, "acceptance: the voice produces signal at the VCA");
+
+		// Re-patch across racks: LFO (right) triangle -> VCO (front) FM
+		app::ModuleWidget* lfo = rack->getModule(3);
+		app::ModuleWidget* vco = rack->getModule(1);
+		if (lfo && vco) {
+			engine::Cable* cable = new engine::Cable;
+			cable->outputModule = lfo->module;
+			cable->outputId = 1;
+			cable->inputModule = vco->module;
+			cable->inputId = 1;
+			APP->engine->addCable(cable);
+			app::CableWidget* cw = new app::CableWidget;
+			cw->setCable(cable);
+			cw->color = color::fromHexString("#ffb437");
+			rack->addCable(cw);
+		}
+		check(rack->getCables().size() == 8, "acceptance: a new cable can be patched across racks");
+
+		// Tiles screenshot, for a visual check
+		setTilesViewShown(true);
+		for (int i = 0; i < 30; i++)
+			APP->window->step();
+		APP->window->screenshot(asset::user("acceptance-tiles.png"));
+		setTilesViewShown(false);
+		check(glGetError() == GL_NO_ERROR, "acceptance: no GL errors");
+
+		// Placements change nothing the engine sees: same modules, params, cables and expander links as stock
+		loadAcceptance();
+		json_t* onJ = engineJson();
+		settings::placementsEnabled = false;
+		loadAcceptance();
+		json_t* offJ = engineJson();
+		check(json_equal(onJ, offJ), "acceptance: the engine's patch is identical with placements on and off (so is the audio)");
+		json_decref(onJ);
+		json_decref(offJ);
+		settings::placementsEnabled = true;
 	}
 
 	quietWarnings = false;
