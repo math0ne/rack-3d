@@ -6,7 +6,7 @@ namespace rack {
 namespace rack3d {
 
 
-/** Debug view: every rack placement's texture in a grid, live. Toggle with F6.
+/** Debug view: every rack placement's texture in a grid of two rows, live. Toggle with F6.
 While shown it replaces the 2D rack (which is hidden but still stepped), so module panels are drawn once per frame,
 at the texture scale. Read-only for now.
 */

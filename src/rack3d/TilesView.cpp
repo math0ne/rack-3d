@@ -3,6 +3,7 @@
 #include <rack3d/TilesView.hpp>
 #include <rack3d/PlacementRenderer.hpp>
 #include <rack3d/Layout.hpp>
+#include <rack3d/Placement.hpp>
 #include <app/Scene.hpp>
 #include <app/RackScrollWidget.hpp>
 #include <app/RackWidget.hpp>
@@ -18,14 +19,25 @@ namespace rack3d {
 
 static const float MARGIN = 20;
 static const float LABEL_HEIGHT = 20;
-static const int COLUMNS = 3;
-static const char* const CUBE_FACE_NAMES[] = {"front", "right", "back", "left", "top", "bottom"};
+/** Tiles always fill at most two rows; columns grow with the number of placements. */
+static const int ROWS = 2;
+
+
+static int getRows(int count) {
+	return std::min(ROWS, std::max(1, count));
+}
+
+
+static int getColumns(int count) {
+	return std::max(1, (count + ROWS - 1) / ROWS);
+}
 
 
 /** Side of the square each tile fits in, in UI px. */
 static float getTileSize(math::Vec size, int count) {
-	int rows = std::max(1, (count + COLUMNS - 1) / COLUMNS);
-	float w = (size.x - MARGIN * (COLUMNS + 1)) / COLUMNS;
+	int rows = getRows(count);
+	int columns = getColumns(count);
+	float w = (size.x - MARGIN * (columns + 1)) / columns;
 	float h = (size.y - MARGIN - (MARGIN + LABEL_HEIGHT) * rows) / rows;
 	return std::fmax(16.f, std::fmin(w, h));
 }
@@ -65,18 +77,15 @@ void TilesView::draw(const DrawArgs& args) {
 	Layout* layout = APP->scene->rack->getLayout();
 	PlacementRenderer* renderer = getRenderer();
 	float tile = getTileSize(box.size, layout->placements.size());
-	bool isCube = layout->placements.size() == 6;
 
 	for (size_t i = 0; i < layout->placements.size(); i++) {
 		const Placement& p = layout->placements[i];
-		float x = MARGIN + (i % COLUMNS) * (tile + MARGIN);
-		float y = MARGIN + (i / COLUMNS) * (tile + MARGIN + LABEL_HEIGHT);
+		int columns = getColumns(layout->placements.size());
+		float x = MARGIN + (i % columns) * (tile + MARGIN);
+		float y = MARGIN + (i / columns) * (tile + MARGIN + LABEL_HEIGHT);
 
 		// Label
-		std::string label = string::f("Rack %d", p.id);
-		if (isCube)
-			label += string::f(" (%s)", CUBE_FACE_NAMES[i]);
-		label += string::f("  %d HP x %d rows", (int) p.gridRect.size.x, (int) p.gridRect.size.y);
+		std::string label = getPlacementName(i) + string::f("  %d HP x %d rows", (int) p.gridRect.size.x, (int) p.gridRect.size.y);
 		nvgFontFaceId(args.vg, APP->window->uiFont->handle);
 		nvgFontSize(args.vg, 13);
 		nvgFillColor(args.vg, nvgRGB(0xc0, 0xc0, 0xc0));
