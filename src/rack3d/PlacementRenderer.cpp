@@ -32,6 +32,9 @@ void PlacementRenderer::render(NVGcontext* vg, app::RackWidget* rack) {
 	}
 
 	for (const Placement& p : layout->placements) {
+		float scale = getScale(p.id);
+		if (scale <= 0)
+			continue;
 		math::Rect rect = Layout::getRackRect(p);
 		math::Vec size = rect.size.mult(scale).ceil();
 

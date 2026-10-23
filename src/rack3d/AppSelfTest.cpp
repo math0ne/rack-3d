@@ -20,6 +20,7 @@
 #include <stb_image_write.h>
 #include <plugin.hpp>
 #include <patch.hpp>
+#include <settings.hpp>
 #include <asset.hpp>
 #include <context.hpp>
 
@@ -922,6 +923,49 @@ int runAppSelfTest() {
 			check(false, "camera: found a point on the right rack to double-click");
 		}
 		view->renderer.rotation = Quat();
+
+		// Texture resolution follows on-screen size; racks facing away aren't rendered
+		view->renderer.distance = 6;
+		for (int i = 0; i < 3; i++)
+			APP->window->step();
+		PlacementRenderer* textures = getRenderer();
+		float front = textures->getScale(0);
+		check(front > 0 && textures->getScale(2) == 0 && textures->getScale(1) == 0, "textures: facing front, the front rack renders and the back and sides are skipped");
+		float log2Front = std::log2(front);
+		check(std::fabs(log2Front - std::round(log2Front)) < 1e-5f, "textures: scales are powers of two");
+		view->renderer.distance = 3;
+		for (int i = 0; i < 3; i++)
+			APP->window->step();
+		check(textures->getScale(0) > front, "textures: zooming in raises the front rack's resolution");
+		const PlacementRenderer::Target* t0 = textures->getTarget(0);
+		check(t0 && t0->size.x == std::ceil(1140 * textures->getScale(0)), "textures: the front texture is rendered at that resolution");
+		view->renderer.distance = 6;
+
+		// Frame time: 2D view vs 3D view, no frame limit, same patch
+		float oldLimit = ::rack::settings::frameRateLimit;
+		::rack::settings::frameRateLimit = 0;
+		auto averageFrame = [&]() {
+			for (int i = 0; i < 10; i++)
+				APP->window->step();
+			double t0 = system::getTime();
+			for (int i = 0; i < 60; i++)
+				APP->window->step();
+			return (system::getTime() - t0) / 60;
+		};
+		view->renderer.rotation = Quat::fromAxisAngle(Vec3(1, 0, 0), 0.45f) * Quat::fromAxisAngle(Vec3(0, 1, 0), -0.6f);
+		double frame3d = averageFrame();
+		setModelViewShown(false);
+		// A normal 2D view: 100% zoom, looking at the patch (earlier tests leave it zoomed far out)
+		APP->scene->rackScroll->setZoom(1.f);
+		APP->scene->rackScroll->setGridOffset(math::Vec(0, 0));
+		double frame2d = averageFrame();
+		settings::placementsEnabled = false;
+		double frame2dStock = averageFrame();
+		settings::placementsEnabled = true;
+		setModelViewShown(true);
+		::rack::settings::frameRateLimit = oldLimit;
+		INFO("rack3d frame time: 2D view %.2f ms (placements off: %.2f ms), 3D view %.2f ms", frame2d * 1000, frame2dStock * 1000, frame3d * 1000);
+		check(frame3d < frame2d * 2 + 0.004, "textures: the 3D view costs at most about twice the 2D view per frame");
 	}
 	setModelViewShown(false);
 

@@ -35,12 +35,7 @@ void ModelView::step() {
 	// The 2D rack is hidden while the 3D view is shown, so step it here
 	scene->rack->step();
 
-	// Placement texture scale: a face filling about the view's height, at the screen's pixel density.
-	// Quantized, so resizing doesn't re-render every panel cache on every pixel of change.
-	float pixelRatio = APP->window->pixelRatio;
-	float scale = box.size.y * pixelRatio * 0.6f / 1140.f;
-	scale = math::clamp(std::round(scale * 16) / 16, 1 / 16.f, 2.f);
-	getRenderer()->scale = scale;
+	updateTextureScales();
 
 	// Camera motion
 	float dt = math::clamp((float) APP->window->getLastFrameDuration(), 0.f, 0.1f);
@@ -178,6 +173,42 @@ void ModelView::snapToPlacement(int placementId) {
 	snapTime = 0;
 	snapping = true;
 	angularVelocity = render3d::Vec3();
+}
+
+
+void ModelView::updateTextureScales() {
+	using render3d::Vec3;
+	PlacementRenderer* textures = getRenderer();
+	textures->placementScales.clear();
+	float pixelRatio = APP->window->pixelRatio;
+	math::Vec viewPx = box.size.mult(pixelRatio);
+	render3d::Mat4 mvp = renderer.getMVP(box.size.x, box.size.y);
+	auto toScreen = [&](Vec3 p) {
+		Vec3 ndc = mvp.transformPoint(p);
+		return math::Vec((ndc.x + 1) / 2 * viewPx.x, (1 - ndc.y) / 2 * viewPx.y);
+	};
+
+	for (const Placement& p : APP->scene->rack->getLayout()->placements) {
+		if (!p.hasSurface)
+			continue;
+		const Surface& s = p.surface;
+		math::Vec size = Layout::getRackRect(p).size;
+		// Facing away from the camera: skip it and keep its last texture
+		Vec3 center = s.toModel(size.div(2));
+		Vec3 toCamera = renderer.rotation.conjugate().rotate(Vec3(0, 0, renderer.distance)) - center;
+		if (s.normal().dot(toCamera) <= 0) {
+			textures->placementScales[p.id] = 0;
+			continue;
+		}
+		// Screen pixels per rack pixel, along the rack's edges
+		math::Vec topLeft = toScreen(s.toModel(math::Vec(0, 0)));
+		float alongX = toScreen(s.toModel(math::Vec(size.x, 0))).minus(topLeft).norm() / size.x;
+		float alongY = toScreen(s.toModel(math::Vec(0, size.y))).minus(topLeft).norm() / size.y;
+		float density = std::fmax(alongX, alongY);
+		// Round up to a power of two, so panel caches re-render only when a rack crosses a level
+		float scale = std::pow(2.f, std::ceil(std::log2(std::fmax(density, 1e-3f))));
+		textures->placementScales[p.id] = math::clamp(scale, MIN_TEXTURE_SCALE, MAX_TEXTURE_SCALE);
+	}
 }
 
 

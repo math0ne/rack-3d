@@ -23,6 +23,9 @@ struct ModelView : widget::OpaqueWidget {
 	static constexpr float SNAP_SECONDS = 0.4f;
 	static constexpr float MIN_DISTANCE = 2.5f;
 	static constexpr float MAX_DISTANCE = 20.f;
+	/** Rack texture resolution range, in texture pixels per rack pixel. */
+	static constexpr float MIN_TEXTURE_SCALE = 1 / 8.f;
+	static constexpr float MAX_TEXTURE_SCALE = 2.f;
 
 	~ModelView();
 	void step() override;
@@ -37,6 +40,10 @@ struct ModelView : widget::OpaqueWidget {
 
 	/** Renders the scene at the view's size. Runs right after the placement textures each frame. */
 	void renderModel();
+	/** Sets each rack's texture resolution from its on-screen size, rounded up to a power of two, and skips racks
+	facing away (they keep their last texture).
+	*/
+	void updateTextureScales();
 	/** The placement under a point of this widget, or -1. Writes where it's hit, in pixels from the placement's
 	top-left corner, to `localPx` if given. Ray-casts against every placement's surface; nearest front-facing hit wins.
 	*/

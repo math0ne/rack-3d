@@ -63,6 +63,8 @@ void TilesView::step() {
 	float scale = getTileSize(box.size, layout->placements.size()) / maxSide * pixelRatio;
 	scale = std::fmax(1 / 16.f, std::round(scale * 16) / 16);
 	getRenderer()->scale = scale;
+	// Every tile is visible, at one scale (the 3D view sets per-rack scales)
+	getRenderer()->placementScales.clear();
 
 	requestRender();
 	OpaqueWidget::step();

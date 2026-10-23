@@ -1,5 +1,6 @@
 #pragma once
 #include <vector>
+#include <map>
 #include <functional>
 
 #include <common.hpp>
@@ -32,7 +33,16 @@ struct PlacementRenderer {
 
 	/** Texture pixels per rack pixel. */
 	float scale = 1.f;
+	/** Per-placement scale overriding `scale`, by placement id. A scale of 0 skips that placement this frame and
+	keeps its last texture (e.g. it faces away from the camera).
+	*/
+	std::map<int, float> placementScales;
 	std::vector<Target> targets;
+
+	float getScale(int placementId) const {
+		auto it = placementScales.find(placementId);
+		return it != placementScales.end() ? it->second : scale;
+	}
 
 	~PlacementRenderer();
 	/** Renders every placement of `rack` into its texture. Must be called with no NanoVG frame open on `vg`. */
