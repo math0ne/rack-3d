@@ -9,8 +9,10 @@ namespace rack3d {
 
 /** The 3D view: the model with every rack placement live on its surface. Toggle with F7.
 Like the tiles view, it hides the 2D rack while shown and steps it itself (draw-once rule).
-Drag to spin the model (it keeps spinning and slows down after you let go), scroll to zoom, double-click a rack to
-turn it to face you.
+Events over a rack are ray-cast to rack coordinates and handed to the RackWidget, so knobs, ports, menus and module
+and cable drags work in 3D. Dragging empty rack space or off the model spins it (it keeps spinning and slows down
+after you let go), scrolling zooms unless a module takes it, and double-clicking empty space on a rack turns that rack
+to face you.
 */
 struct ModelView : widget::OpaqueWidget {
 	ModelRenderer renderer;
@@ -31,7 +33,11 @@ struct ModelView : widget::OpaqueWidget {
 	void step() override;
 	void draw(const DrawArgs& args) override;
 	void onContextDestroy(const ContextDestroyEvent& e) override;
+	void onHover(const HoverEvent& e) override;
 	void onButton(const ButtonEvent& e) override;
+	void onHoverKey(const HoverKeyEvent& e) override;
+	void onHoverText(const HoverTextEvent& e) override;
+	void onDragHover(const DragHoverEvent& e) override;
 	void onDoubleClick(const DoubleClickEvent& e) override;
 	void onDragStart(const DragStartEvent& e) override;
 	void onDragMove(const DragMoveEvent& e) override;
@@ -48,6 +54,10 @@ struct ModelView : widget::OpaqueWidget {
 	top-left corner, to `localPx` if given. Ray-casts against every placement's surface; nearest front-facing hit wins.
 	*/
 	int pickPlacement(math::Vec pos, math::Vec* localPx = NULL);
+	/** This widget's coordinates -> rack coordinates of the rack under them. Returns false off every rack. */
+	bool toRackPos(math::Vec pos, math::Vec* rackPos);
+	/** Rack coordinates -> this widget's coordinates. Returns false if not inside a placement with a surface. */
+	bool fromRackPos(math::Vec rackPos, math::Vec* pos);
 	/** Turns the model so a placement faces the camera, upright, over SNAP_SECONDS. Stops any spin. */
 	void snapToPlacement(int placementId);
 	bool isSnapping() const {

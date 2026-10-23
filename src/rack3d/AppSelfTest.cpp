@@ -908,14 +908,28 @@ int runAppSelfTest() {
 		// Double-click a rack to face it: from a three-quarter view, find a point on the right rack and double-click it
 		view->angularVelocity = Vec3();
 		view->renderer.rotation = Quat::fromAxisAngle(Vec3(0, 1, 0), -0.6f);
+		// A point on the right rack with no module under it (a module would take the double-click)
+		auto overModule = [&](math::Vec viewPos) {
+			math::Vec rackPos;
+			if (!view->toRackPos(viewPos, &rackPos))
+				return false;
+			for (app::ModuleWidget* mw : APP->scene->rack->getModules()) {
+				if (mw->box.contains(rackPos))
+					return true;
+			}
+			return false;
+		};
 		math::Vec onRight(-1, -1);
-		for (float x = center.x; x < view->box.size.x; x += 4) {
-			if (view->pickPlacement(math::Vec(x, center.y)) == 1) {
-				onRight = math::Vec(x + 20, center.y);
-				break;
+		for (float x = center.x; x < view->box.size.x && onRight.x < 0; x += 4) {
+			for (float y = center.y - 100; y <= center.y + 100; y += 20) {
+				math::Vec p(x, y);
+				if (view->pickPlacement(p) == 1 && !overModule(p)) {
+					onRight = p;
+					break;
+				}
 			}
 		}
-		if (onRight.x >= 0 && view->pickPlacement(onRight) == 1) {
+		if (onRight.x >= 0) {
 			math::Vec p = view->box.pos.plus(onRight);
 			APP->event->handleHover(p, math::Vec());
 			for (int i = 0; i < 2; i++) {
@@ -930,6 +944,68 @@ int runAppSelfTest() {
 		else {
 			check(false, "camera: found a point on the right rack to double-click");
 		}
+		view->renderer.rotation = Quat();
+
+		// Input through the 3D view, from a three-quarter view (front, right and top racks visible)
+		view->angularVelocity = Vec3();
+		view->renderer.rotation = Quat::fromAxisAngle(Vec3(1, 0, 0), 0.45f) * Quat::fromAxisAngle(Vec3(0, 1, 0), -0.6f);
+		for (int i = 0; i < 3; i++)
+			APP->window->step();
+		app::RackWidget* rack = APP->scene->rack;
+		auto screenOf = [&](math::Vec rackPos) {
+			math::Vec p;
+			view->fromRackPos(rackPos, &p);
+			return view->box.pos.plus(p);
+		};
+		auto center3d = [&](widget::Widget* w) {
+			return screenOf(w->getRelativeOffset(w->box.size.div(2), rack));
+		};
+		auto drag = [&](math::Vec from, math::Vec to) {
+			APP->event->handleHover(from, math::Vec());
+			APP->event->handleButton(from, GLFW_MOUSE_BUTTON_LEFT, GLFW_PRESS, 0);
+			math::Vec last = from;
+			for (int i = 1; i <= 20; i++) {
+				math::Vec p = from.crossfade(to, i / 20.f);
+				APP->event->handleHover(p, p.minus(last));
+				last = p;
+				APP->window->step();
+			}
+			APP->event->handleButton(to, GLFW_MOUSE_BUTTON_LEFT, GLFW_RELEASE, 0);
+			APP->window->step();
+		};
+		app::ModuleWidget* vco = rack->getModule(1);
+		app::ModuleWidget* lfo = rack->getModule(3);
+		if (vco && lfo) {
+			app::ParamWidget* knob = vco->getParams()[0];
+			APP->event->handleHover(center3d(knob), math::Vec());
+			check(APP->event->hoveredWidget == knob, "3d input: hovering a knob in 3D hovers it");
+			float before = knob->getParamQuantity()->getValue();
+			drag(center3d(knob), center3d(knob).plus(math::Vec(0, -40)));
+			check(knob->getParamQuantity()->getValue() != before, "3d input: dragging a knob in 3D turns it");
+
+			size_t n = rack->getCables().size();
+			app::PortWidget* out = lfo->getOutput(1);
+			app::PortWidget* in = vco->getInput(1);
+			drag(center3d(out), center3d(in));
+			bool connected = false;
+			for (app::CableWidget* cw : rack->getCables())
+				connected = connected || (cw->isComplete() && cw->outputPort == out && cw->inputPort == in);
+			check(rack->getCables().size() == n + 1 && connected, "3d input: a cable can be patched between racks in 3D");
+
+			// Drag the VCO from the front rack onto the right rack
+			math::Rect right = rack3d::Layout::getRackRect(*rack->getLayout()->getPlacement(1));
+			drag(screenOf(vco->box.pos.plus(math::Vec(3, 300))), screenOf(right.pos.plus(math::Vec(30 * app::RACK_GRID_WIDTH, 380 + 190))));
+			rack3d::Placement* p = rack->getLayout()->placementOf(vco->getGridBox());
+			check(p && p->id == 1, "3d input: a module can be dragged from one rack to another in 3D");
+
+			// Dragging empty rack space spins the model, and doesn't start a selection
+			math::Rect front = rack3d::Layout::getRackRect(*rack->getLayout()->getPlacement(0));
+			math::Vec empty = screenOf(front.pos.plus(math::Vec(45 * app::RACK_GRID_WIDTH, 380 + 190)));
+			Quat r0 = view->renderer.rotation;
+			drag(empty, empty.plus(math::Vec(60, 0)));
+			check(view->renderer.rotation.angleTo(r0) > 0.2f && rack->getSelected().empty(), "3d input: dragging empty rack space spins the model");
+		}
+		view->angularVelocity = Vec3();
 		view->renderer.rotation = Quat();
 
 		// Texture resolution follows on-screen size; racks facing away aren't rendered

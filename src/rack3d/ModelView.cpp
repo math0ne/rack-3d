@@ -66,11 +66,80 @@ void ModelView::step() {
 }
 
 
+bool ModelView::toRackPos(math::Vec pos, math::Vec* rackPos) {
+	math::Vec local;
+	int id = pickPlacement(pos, &local);
+	if (id < 0)
+		return false;
+	*rackPos = Layout::getRackRect(*APP->scene->rack->getLayout()->getPlacement(id)).pos.plus(local);
+	return true;
+}
+
+
+bool ModelView::fromRackPos(math::Vec rackPos, math::Vec* pos) {
+	for (const Placement& p : APP->scene->rack->getLayout()->placements) {
+		math::Rect r = Layout::getRackRect(p);
+		if (!p.hasSurface || !r.contains(rackPos))
+			continue;
+		render3d::Vec3 ndc = renderer.getMVP(box.size.x, box.size.y).transformPoint(p.surface.toModel(rackPos.minus(r.pos)));
+		*pos = math::Vec((ndc.x + 1) / 2 * box.size.x, (1 - ndc.y) / 2 * box.size.y);
+		return true;
+	}
+	return false;
+}
+
+
+/** Hands a positional event over a rack to the RackWidget, at the ray-cast hit in rack coordinates (as TilesView
+does with tiles). Drag start/move/end go straight to the dragged widget, and drop to the widget that took the last
+drag-hover, so they need no forwarding.
+*/
+template <class TEvent>
+static bool forwardToRack(ModelView* view, const TEvent& e, void (widget::Widget::*handler)(const TEvent&)) {
+	math::Vec rackPos;
+	if (!view->toRackPos(e.pos, &rackPos))
+		return false;
+	TEvent e2 = e;
+	e2.pos = rackPos;
+	(APP->scene->rack->*handler)(e2);
+	return true;
+}
+
+
+void ModelView::onHover(const HoverEvent& e) {
+	if (!forwardToRack(this, e, &widget::Widget::onHover))
+		OpaqueWidget::onHover(e);
+}
+
+
 void ModelView::onButton(const ButtonEvent& e) {
 	if (e.action == GLFW_PRESS)
 		lastButtonPos = e.pos;
-	// Consume, so drags and double-clicks come to us
-	OpaqueWidget::onButton(e);
+	if (forwardToRack(this, e, &widget::Widget::onButton)) {
+		// A left press on empty rack space spins the model, like one off the model, instead of starting a selection
+		bool emptyRack = e.getTarget() == APP->scene->rack;
+		if (!(e.button == GLFW_MOUSE_BUTTON_LEFT && emptyRack) && e.isConsumed())
+			return;
+	}
+	// Take it, so drags (spin) and double-clicks (snap) come to us
+	e.consume(this);
+}
+
+
+void ModelView::onHoverKey(const HoverKeyEvent& e) {
+	if (!forwardToRack(this, e, &widget::Widget::onHoverKey))
+		OpaqueWidget::onHoverKey(e);
+}
+
+
+void ModelView::onHoverText(const HoverTextEvent& e) {
+	if (!forwardToRack(this, e, &widget::Widget::onHoverText))
+		OpaqueWidget::onHoverText(e);
+}
+
+
+void ModelView::onDragHover(const DragHoverEvent& e) {
+	if (!forwardToRack(this, e, &widget::Widget::onDragHover))
+		OpaqueWidget::onDragHover(e);
 }
 
 
@@ -116,6 +185,9 @@ void ModelView::onDragEnd(const DragEndEvent& e) {
 
 
 void ModelView::onHoverScroll(const HoverScrollEvent& e) {
+	// A module under the mouse may take it (e.g. knob scrolling); otherwise zoom
+	if (forwardToRack(this, e, &widget::Widget::onHoverScroll) && e.isConsumed())
+		return;
 	renderer.distance = math::clamp(renderer.distance * std::exp(-e.scrollDelta.y * 0.002f), MIN_DISTANCE, MAX_DISTANCE);
 	e.consume(this);
 }
