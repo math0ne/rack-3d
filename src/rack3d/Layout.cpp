@@ -227,10 +227,12 @@ bool Layout::fromJson(json_t* rack3dJ) {
 }
 
 
-Layout::FitResult Layout::fitBoxes(const std::vector<math::Rect>& boxes, std::vector<math::Vec>& positions, int* overflow) const {
+Layout::FitResult Layout::fitBoxes(const std::vector<math::Rect>& boxes, std::vector<math::Vec>& positions, int* overflow, int* splits) const {
 	positions.resize(boxes.size());
 	if (overflow)
 		*overflow = 0;
+	if (splits)
+		*splits = 0;
 	for (size_t i = 0; i < boxes.size(); i++)
 		positions[i] = boxes[i].pos;
 	if (boxes.empty())
@@ -306,22 +308,44 @@ Layout::FitResult Layout::fitBoxes(const std::vector<math::Rect>& boxes, std::ve
 				break;
 			}
 		}
-		float x, y;
 		if (row) {
-			x = row->cursor;
-			y = row->y;
+			float x = row->cursor;
+			for (size_t i : run) {
+				positions[i] = math::Vec(x, row->y);
+				x += boxes[i].size.x;
+			}
 			row->cursor += width;
+			continue;
 		}
-		else {
-			x = shelfCursor;
-			y = shelfY;
-			shelfCursor += width;
-			if (overflow)
-				*overflow += run.size();
-		}
-		for (size_t i : run) {
-			positions[i] = math::Vec(x, y);
-			x += boxes[i].size.x;
+
+		// Too wide for any row: split it at module boundaries. Each module stays right after the previous one while
+		// that row has room, otherwise starts the next row with room. Only a module wider than every row overflows.
+		Row* current = NULL;
+		for (size_t k = 0; k < run.size(); k++) {
+			size_t i = run[k];
+			float w = boxes[i].size.x;
+			if (!current || current->cursor + w > current->right) {
+				Row* next = NULL;
+				for (Row& r : rows) {
+					if (r.cursor + w <= r.right) {
+						next = &r;
+						break;
+					}
+				}
+				if (k > 0 && splits)
+					(*splits)++;
+				current = next;
+			}
+			if (current) {
+				positions[i] = math::Vec(current->cursor, current->y);
+				current->cursor += w;
+			}
+			else {
+				positions[i] = math::Vec(shelfCursor, shelfY);
+				shelfCursor += w;
+				if (overflow)
+					(*overflow)++;
+			}
 		}
 	}
 	return FIT_PACKED;
@@ -583,12 +607,30 @@ int layoutSelfTest() {
 			math::Rect(50, 0, 40, 1), math::Rect(90, 0, 40, 1),
 			math::Rect(10, 1, 10, 1),
 		};
-		int overflow = -1;
-		check(cube.fitBoxes(wide, pos, &overflow) == Layout::FIT_PACKED, "fit: a wide patch is packed");
-		check(pos[1].x - pos[0].x == 20 && pos[1].y == pos[0].y, "fit: a run of touching modules stays together");
-		check(overflow == 2 && pos[2].y == 24 && pos[3].y == 24 && pos[3].x - pos[2].x == 40, "fit: a run wider than any rack goes to the overflow shelf, intact");
-		check(cube.placementOf(math::Rect(pos[4], wide[4].size)) && cube.placementOf(math::Rect(pos[0], wide[0].size)), "fit: the rest is placed");
+		int overflow = -1, splits = -1;
+		check(cube.fitBoxes(wide, pos, &overflow, &splits) == Layout::FIT_PACKED, "fit: a wide patch is packed");
+		check(pos[1].x - pos[0].x == 20 && pos[1].y == pos[0].y, "fit: a run of touching modules that fits stays together");
+		check(overflow == 0 && splits == 1 && allPlaced(wide), "fit: a run wider than any rack is split once at a module boundary, and everything is placed");
 		check(noOverlap(wide), "fit: no overlaps after packing");
+
+		// Only a module wider than every rack overflows
+		std::vector<math::Rect> huge = {math::Rect(0, 0, 90, 1), math::Rect(90, 0, 10, 1)};
+		check(cube.fitBoxes(huge, pos, &overflow, &splits) == Layout::FIT_PACKED && overflow == 1 && pos[0].y == 24, "fit: only a module wider than every rack goes to the overflow shelf");
+		check(cube.placementOf(math::Rect(pos[1], huge[1].size)) != NULL, "fit: ...its neighbour is still placed");
+
+		// Rack's own template patch layout on the default 2-row x 50 HP cube: long touching rows all get placed
+		Layout small2;
+		small2.addCube();
+		std::vector<math::Rect> template2;
+		for (int r = 0; r < 2; r++) {
+			float x = 0;
+			for (int w : {12, 10, 8, 10, 14, 9, 13, 10, 12, 8, 10, 14}) {
+				template2.push_back(math::Rect(x, r, w, 1));
+				x += w;
+			}
+		}
+		std::vector<math::Vec> pos2;
+		check(small2.fitBoxes(template2, pos2, &overflow, &splits) == Layout::FIT_PACKED && overflow == 0 && splits > 0, "fit: two 130 HP rows of touching modules all fit on the 2-row cube, split as needed");
 
 		// Many runs: they fill rows in order
 		std::vector<math::Rect> many;

@@ -368,8 +368,8 @@ static void fitModulesIntoPlacements(RackWidget* rack) {
 		boxes.push_back(mw->getGridBox());
 
 	std::vector<math::Vec> positions;
-	int overflow = 0;
-	rack3d::Layout::FitResult result = internal->layout.fitBoxes(boxes, positions, &overflow);
+	int overflow = 0, splits = 0;
+	rack3d::Layout::FitResult result = internal->layout.fitBoxes(boxes, positions, &overflow, &splits);
 	if (result == rack3d::Layout::FIT_KEPT)
 		return;
 
@@ -379,6 +379,8 @@ static void fitModulesIntoPlacements(RackWidget* rack) {
 			internal->strayGivenUp[mws[i]->module->id] = mws[i]->box.pos;
 	}
 	INFO("Fitted %d modules into racks (%s)", (int) mws.size(), result == rack3d::Layout::FIT_MOVED_BLOCK ? "moved as one block" : "packed by rows");
+	if (splits > 0)
+		WARN("%d pairs of touching modules were split to fit the racks; expanders across them no longer connect", splits);
 	if (overflow > 0) {
 		WARN("%d modules didn't fit in any rack", overflow);
 		rack3d::warnOverflow(overflow);

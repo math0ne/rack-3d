@@ -109,11 +109,13 @@ struct Layout {
 	};
 	/** Fits module boxes (grid units, e.g. from a stock patch) into the placements. Writes each box's new grid
 	position to `positions`. Tries, in order: keep every box where it is; move the whole patch as one block into a
-	placement; pack runs of touching boxes (expander chains) into placement rows, left to right, closing gaps.
-	A run is never split, so expanders keep working. Runs that don't fit anywhere go on an overflow shelf below
-	every placement (outside all of them) and are counted in `overflow`. Boxes must not overlap.
+	placement; pack runs of touching boxes (possible expander chains) into placement rows, left to right, closing gaps.
+	A run that fits in a row stays together. One too wide for every row is split at module boundaries (the number of
+	broken neighbour pairs is added to `splits`: expanders across them stop working). Only a box wider than every row
+	goes on the overflow shelf below every placement (outside all of them), counted in `overflow`.
+	Boxes must not overlap.
 	*/
-	FitResult fitBoxes(const std::vector<math::Rect>& boxes, std::vector<math::Vec>& positions, int* overflow = NULL) const;
+	FitResult fitBoxes(const std::vector<math::Rect>& boxes, std::vector<math::Vec>& positions, int* overflow = NULL, int* splits = NULL) const;
 
 	/** Moves `gridBox` the least distance needed to lie inside `p`'s block. The box must fit (size ≤ block size). */
 	static math::Rect clampInto(const Placement& p, math::Rect gridBox);
