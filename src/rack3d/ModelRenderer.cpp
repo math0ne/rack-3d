@@ -61,6 +61,10 @@ uniform float uShadowTexel;
 uniform float uFogStart;
 // Overall brightness, applied to everything before gamma
 uniform float uExposure;
+// Contrast: uFill scales the soft light (ambient, camera-side key, the sky and haze), uSunBoost the sun (direct light,
+// its glow, shafts, highlights). Emissive light (cable glow, LEDs) is left alone.
+uniform float uFill;
+uniform float uSunBoost;
 out vec4 outColor;
 
 // Hazy late sun, a soft key from the camera side so panels stay readable, and sky / ground ambient
@@ -71,7 +75,13 @@ const vec3 SKY_AMBIENT = vec3(0.3, 0.35, 0.45);
 const vec3 GROUND_AMBIENT = vec3(0.11, 0.1, 0.09);
 
 vec3 toLinear(vec3 c) { return pow(max(c, 0.0), vec3(2.2)); }
-vec3 toGamma(vec3 c) { return pow(max(c * uExposure, 0.0), vec3(1.0 / 2.2)); }
+// Soft shoulder above 0.8 so sunlit white panels roll off instead of clipping, then gamma
+vec3 toGamma(vec3 c) {
+	c = max(c * uExposure, 0.0);
+	vec3 over = max(c - 0.8, 0.0);
+	c = min(c, 0.8) + 0.2 * (1.0 - exp(-over / 0.2));
+	return pow(c, vec3(1.0 / 2.2));
+}
 
 float hash(vec3 p) {
 	p = fract(p * 0.3183099 + 0.1);
@@ -129,7 +139,8 @@ vec3 skyColor(vec3 dir) {
 	vec3 zenith = vec3(0.05, 0.07, 0.1);
 	vec3 c = mix(horizon, zenith, clamp(dir.y * 1.5, 0.0, 1.0));
 	c = mix(c, vec3(0.22, 0.21, 0.2), clamp(-dir.y * 3.0, 0.0, 1.0));
-	c += vec3(1.0, 0.72, 0.42) * (0.3 * pow(sun, 5.0) + 0.9 * pow(sun, 60.0));
+	c *= uFill;
+	c += vec3(1.0, 0.72, 0.42) * (0.3 * pow(sun, 5.0) + 0.9 * pow(sun, 60.0)) * uSunBoost;
 	return c;
 }
 
@@ -183,7 +194,7 @@ vec3 shafts(vec3 p) {
 	}
 	// Mostly forward scattering: shafts show when looking toward the sun
 	float phase = 0.06 + 1.4 * pow(max(dot(dir, uSunDir), 0.0), 8.0);
-	return SUN_COLOR * vec3(1.0, 0.88, 0.72) * lit * phase * 0.003 * uFog;
+	return SUN_COLOR * vec3(1.0, 0.88, 0.72) * lit * phase * 0.003 * uFog * uSunBoost;
 }
 
 void main() {
@@ -202,8 +213,15 @@ void main() {
 		return;
 	}
 	vec3 base;
-	if (uMaterial == 1)
-		base = toLinear(texture(uTex, vUv).rgb);
+	// Light the surface gives off: cable glow, and LEDs and displays on panels (bright, strongly colored pixels)
+	vec3 emitted = vec3(0.0);
+	if (uMaterial == 1) {
+		vec3 t = texture(uTex, vUv).rgb;
+		base = toLinear(t);
+		float hi = max(t.r, max(t.g, t.b)), lo = min(t.r, min(t.g, t.b));
+		float saturation = hi > 0.0 ? (hi - lo) / hi : 0.0;
+		emitted = base * smoothstep(0.55, 0.8, saturation) * smoothstep(0.45, 0.75, hi) * 0.9;
+	}
 	else if (uMaterial == 2)
 		base = concrete(vWorld, normalize(vNormal));
 	else
@@ -216,14 +234,15 @@ void main() {
 	float sunDiffuse = max(dot(n, uSunDir), 0.0) * sunShadow(vWorld, n);
 	float keyDiffuse = max(dot(n, KEY_DIR), 0.0);
 	vec3 ambient = mix(GROUND_AMBIENT, SKY_AMBIENT, n.y * 0.5 + 0.5);
-	vec3 c = base * (ambient + KEY_COLOR * keyDiffuse + SUN_COLOR * sunDiffuse);
+	vec3 sun = SUN_COLOR * uSunBoost;
+	vec3 c = base * ((ambient + KEY_COLOR * keyDiffuse) * uFill + sun * sunDiffuse);
 	// Blinn-Phong highlights for plastic and metal parts
 	if (uSpecular > 0.0) {
 		vec3 hk = normalize(KEY_DIR + toCam);
 		vec3 hs = normalize(uSunDir + toCam);
-		c += uSpecular * (KEY_COLOR * pow(max(dot(n, hk), 0.0), 40.0) + SUN_COLOR * sunDiffuse * pow(max(dot(n, hs), 0.0), 60.0));
+		c += uSpecular * (KEY_COLOR * uFill * pow(max(dot(n, hk), 0.0), 40.0) + sun * sunDiffuse * pow(max(dot(n, hs), 0.0), 60.0));
 	}
-	c += base * uEmissive;
+	c += base * uEmissive + emitted;
 	if (uEnvironment) {
 		c = mix(c, skyColor(viewDir), fogAmount(vWorld));
 		c += shafts(vWorld);
@@ -873,6 +892,9 @@ void ModelRenderer::render(int width, int height, Layout* layout, PlacementRende
 	glUniform1f(glGetUniformLocation(program, "uShadowTexel"), 1.f / SHADOW_SIZE);
 	glUniform1f(glGetUniformLocation(program, "uFogStart"), distance + 2.f);
 	glUniform1f(glGetUniformLocation(program, "uExposure"), exposure);
+	// Contrast 0 is the plain lighting; 1 drops the soft light to a fifth and lifts the sun by half
+	glUniform1f(glGetUniformLocation(program, "uFill"), 1.f - 0.8f * contrast);
+	glUniform1f(glGetUniformLocation(program, "uSunBoost"), 1.f + 0.5f * contrast);
 	glUniformMatrix4fv(glGetUniformLocation(program, "uLightNear"), 1, GL_FALSE, lightNear.m);
 	glUniformMatrix4fv(glGetUniformLocation(program, "uLightFar"), 1, GL_FALSE, lightFar.m);
 	// Shadow samplers must point at depth textures with comparison even when unused

@@ -1098,17 +1098,25 @@ int runAppSelfTest() {
 		{
 			bool savedOrbit = settings::autoOrbit;
 			float savedSpeed = settings::orbitSpeed;
-			settings::autoOrbit = true;
+			settings::autoOrbit = false;
 			settings::orbitSpeed = 4.f;
 			view->angularVelocity = Vec3();
+			APP->window->step();
+			// F8 over the view turns it on, and it starts right away
+			APP->event->handleKey(screen, GLFW_KEY_F8, 0, GLFW_PRESS, 0);
+			APP->event->handleKey(screen, GLFW_KEY_F8, 0, GLFW_RELEASE, 0);
+			check(settings::autoOrbit, "orbit: F8 over the 3D view turns it on");
+			Quat start = view->renderer.rotation;
+			for (int i = 0; i < 60; i++)
+				APP->window->step();
+			check(view->isOrbiting() && view->renderer.rotation.angleTo(start) > 0.01f, "orbit: turning it on starts turning the model at once");
 			view->noteInteraction();
 			APP->window->step();
 			check(!view->isOrbiting(), "orbit: waits after you use the view");
 			view->idleTime = ModelView::ORBIT_RESUME_SECONDS + ModelView::ORBIT_EASE_SECONDS;
-			Quat start = view->renderer.rotation;
-			for (int i = 0; i < 30; i++)
+			for (int i = 0; i < 10; i++)
 				APP->window->step();
-			check(view->isOrbiting() && view->renderer.rotation.angleTo(start) > 0.01f, "orbit: once idle, the model turns by itself");
+			check(view->isOrbiting(), "orbit: once idle again, it carries on");
 			APP->event->handleScroll(screen, math::Vec(0, -1));
 			Quat paused = view->renderer.rotation;
 			for (int i = 0; i < 10; i++)

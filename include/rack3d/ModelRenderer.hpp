@@ -105,6 +105,10 @@ struct ModelRenderer {
 	float cableGlow = 0.f;
 	/** Overall brightness (linear multiplier before gamma); 1 is unchanged. */
 	float exposure = 1.f;
+	/** 0..1: darkens the soft light (ambient, fill, sky, haze) and brightens the sun, leaving emissive light (cable
+	glow, LEDs) as is. 0 is the plain lighting.
+	*/
+	float contrast = 0.f;
 	/** Direction toward the sun (world space): low on the left and a little in front, so the model has a warm sunlit
 	side and a cool shaded one, and the structures cast long shadows across the plaza.
 	*/

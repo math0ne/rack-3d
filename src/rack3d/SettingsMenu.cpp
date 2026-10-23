@@ -133,6 +133,7 @@ void appendViewMenu(ui::Menu* menu) {
 	menu->addChild(new ui::MenuSeparator);
 	menu->addChild(createMenuLabel("Rack 3D"));
 	menu->addChild(createBoolPtrMenuItem("Rack placements (experimental)", "", &settings::placementsEnabled));
+	menu->addChild(createBoolPtrMenuItem("Auto-orbit 3D view", "F8", &settings::autoOrbit));
 	menu->addChild(createSubmenuItem("Cable physics", "", [](ui::Menu* menu) {
 		appendCableMenu(menu);
 	}));
@@ -140,9 +141,8 @@ void appendViewMenu(ui::Menu* menu) {
 		menu->addChild(createBoolPtrMenuItem("Concrete plaza, sun and fog", "", &settings::environment));
 		menu->addChild(createSlider(&settings::fog, "Fog", 0.f, 3.f, 1.f, 2));
 		menu->addChild(createSlider(&settings::cableGlow, "Cable glow", 0.f, 1.f, 0.35f, 2));
-		menu->addChild(createSlider(&settings::brightness, "Brightness", 0.2f, 1.5f, 0.55f, 2));
+		menu->addChild(createSlider(&settings::contrast, "Contrast", 0.f, 1.f, 0.6f, 2));
 		menu->addChild(new ui::MenuSeparator);
-		menu->addChild(createBoolPtrMenuItem("Auto-orbit", "F8", &settings::autoOrbit));
 		menu->addChild(createSlider(&settings::orbitSpeed, "Orbit speed", 0.1f, 4.f, 1.f, 2));
 	}));
 }

@@ -37,7 +37,7 @@ struct ModelView : widget::OpaqueWidget {
 	so the top and bottom come round too.
 	*/
 	static constexpr float ORBIT_RESUME_SECONDS = 4.f;
-	static constexpr float ORBIT_EASE_SECONDS = 3.f;
+	static constexpr float ORBIT_EASE_SECONDS = 1.5f;
 	static constexpr float ORBIT_TILT = 0.85f;
 	static constexpr float ORBIT_TILT_TURNS = 1.37f;
 	/** Seconds since you last used the view. */
@@ -107,6 +107,8 @@ private:
 	bool snapping = false;
 	/** Auto-orbit: the rotation it started from, and how far it has turned (radians) since. */
 	bool orbiting = false;
+	/** settings::autoOrbit last step, to start orbiting at once when it's turned on. */
+	bool autoOrbitWasOn = false;
 	render3d::Quat orbitFrom;
 	float orbitAngle = 0;
 	render3d::Quat snapFrom;

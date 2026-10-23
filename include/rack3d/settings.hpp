@@ -25,8 +25,8 @@ extern bool environment;
 extern float fog;
 /** How much the 3D cables glow: 0 is plain cables. */
 extern float cableGlow;
-/** Overall brightness of the 3D view: 1 is the renderer's full light. */
-extern float brightness;
+/** 3D view contrast, 0..1: darker shade and haze, brighter sun; glowing things stay bright. */
+extern float contrast;
 /** The 3D view slowly turns and tips the model by itself, pausing while you use it (F8). */
 extern bool autoOrbit;
 /** Auto-orbit speed: 1 is one turn every ORBIT_TURN_SECONDS. */

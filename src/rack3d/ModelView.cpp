@@ -46,6 +46,10 @@ void ModelView::step() {
 
 	// Camera motion
 	float dt = math::clamp((float) APP->window->getLastFrameDuration(), 0.f, 0.1f);
+	// Turning auto-orbit on (F8 or the menu) starts it now, without the pause after using the view
+	if (settings::autoOrbit && !autoOrbitWasOn)
+		idleTime = ORBIT_RESUME_SECONDS;
+	autoOrbitWasOn = settings::autoOrbit;
 	if (snapping) {
 		snapTime += dt;
 		float u = math::clamp(snapTime / SNAP_SECONDS, 0.f, 1.f);
@@ -443,7 +447,7 @@ void ModelView::renderModel() {
 	renderer.environment = settings::environment;
 	renderer.fog = settings::fog;
 	renderer.cableGlow = settings::cableGlow;
-	renderer.exposure = settings::brightness;
+	renderer.contrast = settings::contrast;
 	renderer.render(width, height, APP->scene->rack->getLayout(), getRenderer(), &cables, &knobs, &parts);
 }
 
@@ -486,7 +490,10 @@ void ModelView::draw(const DrawArgs& args) {
 	nvgFontSize(args.vg, 13);
 	nvgFillColor(args.vg, nvgRGBA(0xc0, 0xc0, 0xc0, 0xa0));
 	nvgTextAlign(args.vg, NVG_ALIGN_LEFT | NVG_ALIGN_BOTTOM);
-	nvgText(args.vg, 12, box.size.y - 10, "3D view (F7) · drag to spin · scroll to zoom · double-click a rack to face it · F8: auto-orbit · F6: tiles", NULL);
+	std::string hint = "3D view (F7) · drag to spin · scroll to zoom · double-click a rack to face it · F8: auto-orbit ";
+	hint += settings::autoOrbit ? "(on)" : "(off)";
+	hint += " · F6: tiles";
+	nvgText(args.vg, 12, box.size.y - 10, hint.c_str(), NULL);
 
 	OpaqueWidget::draw(args);
 }
