@@ -15,9 +15,11 @@ on:
 permissions:
   contents: read
 
+# Pushes to a branch queue behind its running build (so the slow first dependency build can finish and be cached);
+# a pull request's newer push replaces its older run
 concurrency:
   group: build-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   windows:
