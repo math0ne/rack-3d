@@ -40,6 +40,20 @@ namespace window {
 static const math::Vec WINDOW_SIZE_MIN = math::Vec(640, 480);
 
 
+/** Set RACK_GL_DEBUG=1 to request a debug context and log OpenGL errors/warnings. */
+static bool glDebugEnabled() {
+	const char* env = std::getenv("RACK_GL_DEBUG");
+	return env && env[0] && env[0] != '0';
+}
+
+
+static void GLAPIENTRY glDebugCallback(GLenum source, GLenum type, GLuint id, GLenum severity, GLsizei length, const GLchar* message, const void* userParam) {
+	if (severity == GL_DEBUG_SEVERITY_NOTIFICATION)
+		return;
+	WARN("OpenGL: %s (type 0x%x, id %u, severity 0x%x)", message, type, id, severity);
+}
+
+
 Font::~Font() {
 	// There is no NanoVG deleteFont() function yet, so do nothing
 }
@@ -262,15 +276,12 @@ Window::Window() {
 	int err;
 
 	// Set window hints
-#if defined NANOVG_GL2
-	glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 2);
-	glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 0);
-#elif defined NANOVG_GL3
-	glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
-	glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 2);
+	glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
+	glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 5);
 	glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);
 	glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
-#endif
+	if (glDebugEnabled())
+		glfwWindowHint(GLFW_OPENGL_DEBUG_CONTEXT, GLFW_TRUE);
 	glfwWindowHint(GLFW_DOUBLEBUFFER, GLFW_TRUE);
 	glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE);
 
@@ -281,7 +292,7 @@ Window::Window() {
 	// Create window
 	win = glfwCreateWindow(1024, 720, "", NULL, NULL);
 	if (!win) {
-		osdialog_message(OSDIALOG_ERROR, OSDIALOG_OK, "Could not open GLFW window. Does your graphics card support OpenGL 2.0 or greater? If so, make sure you have the latest graphics drivers installed.");
+		osdialog_message(OSDIALOG_ERROR, OSDIALOG_OK, "Could not open GLFW window. Does your graphics card support OpenGL 4.5 or greater? If so, make sure you have the latest graphics drivers installed.");
 		throw Exception("Could not create Window");
 	}
 
@@ -332,8 +343,15 @@ Window::Window() {
 	glewExperimental = GL_TRUE;
 	err = glewInit();
 	if (err != GLEW_OK) {
-		osdialog_message(OSDIALOG_ERROR, OSDIALOG_OK, "Could not initialize GLEW. Does your graphics card support OpenGL 2.0 or greater? If so, make sure you have the latest graphics drivers installed.");
+		osdialog_message(OSDIALOG_ERROR, OSDIALOG_OK, "Could not initialize GLEW. Does your graphics card support OpenGL 4.5 or greater? If so, make sure you have the latest graphics drivers installed.");
 		throw Exception("Could not initialize GLEW");
+	}
+
+	if (glDebugEnabled() && glDebugMessageCallback) {
+		glEnable(GL_DEBUG_OUTPUT);
+		glEnable(GL_DEBUG_OUTPUT_SYNCHRONOUS);
+		glDebugMessageCallback(glDebugCallback, NULL);
+		INFO("OpenGL debug output enabled");
 	}
 
 	const GLubyte* vendor = glGetString(GL_VENDOR);
@@ -347,16 +365,10 @@ Window::Window() {
 
 	// Set up NanoVG
 	int nvgFlags = NVG_ANTIALIAS;
-#if defined NANOVG_GL2
-	vg = nvgCreateGL2(nvgFlags);
-	fbVg = nvgCreateSharedGL2(vg, nvgFlags);
-#elif defined NANOVG_GL3
 	vg = nvgCreateGL3(nvgFlags);
-#elif defined NANOVG_GLES2
-	vg = nvgCreateGLES2(nvgFlags);
-#endif
-	if (!vg) {
-		osdialog_message(OSDIALOG_ERROR, OSDIALOG_OK, "Could not initialize NanoVG. Does your graphics card support OpenGL 2.0 or greater? If so, make sure you have the latest graphics drivers installed.");
+	fbVg = nvgCreateSharedGL3(vg, nvgFlags);
+	if (!vg || !fbVg) {
+		osdialog_message(OSDIALOG_ERROR, OSDIALOG_OK, "Could not initialize NanoVG. Does your graphics card support OpenGL 4.5 or greater? If so, make sure you have the latest graphics drivers installed.");
 		throw Exception("Could not initialize NanoVG");
 	}
 
@@ -386,14 +398,8 @@ Window::~Window() {
 
 	// nvgDeleteClone(fbVg);
 
-#if defined NANOVG_GL2
-	nvgDeleteGL2(vg);
-	nvgDeleteGL2(fbVg);
-#elif defined NANOVG_GL3
 	nvgDeleteGL3(vg);
-#elif defined NANOVG_GLES2
-	nvgDeleteGLES2(vg);
-#endif
+	nvgDeleteGL3(fbVg);
 
 	glfwDestroyWindow(win);
 	delete internal;

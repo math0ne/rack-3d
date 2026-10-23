@@ -12,6 +12,10 @@
 #include <GL/glew.h>
 #include <GLFW/glfw3.h>
 #include <nanovg.h>
+// Rack renders with NanoVG's GL3 backend on an OpenGL 4.5 core context.
+// NANOVG_GL2 stays defined so plugin source that calls the GL2-named functions still
+// compiles; libRack exports those names as shims forwarding to GL3 (see dep.cpp).
+#define NANOVG_GL3
 #define NANOVG_GL2
 #include <nanovg_gl.h>
 #include <nanovg_gl_utils.h>
