@@ -127,6 +127,12 @@ private:
 
 /** The 3D view, or NULL if it was never shown. */
 ModelView* getModelView();
+/** Where point `v` of widget `w` is on screen, in root (Scene) coordinates. When the 3D view is shown and `w` is on the
+rack, that's where the point appears on the model; otherwise it's `w->getAbsoluteOffset(v)`. Returns false if `w` is on
+the rack but not on any rack's surface, so it isn't on screen.
+For tooltips and anything else placed next to a rack widget.
+*/
+bool getScreenOffset(widget::Widget* w, math::Vec v, math::Vec* out);
 bool isModelViewShown();
 /** Showing the 3D view hides the tiles view. */
 void setModelViewShown(bool shown);

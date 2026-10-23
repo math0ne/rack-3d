@@ -1,4 +1,5 @@
 #include <app/Knob.hpp>
+#include <rack3d/ModelView.hpp>
 #include <context.hpp>
 #include <app/Scene.hpp>
 #include <app/RackScrollWidget.hpp>
@@ -188,7 +189,9 @@ void Knob::onDragMove(const DragMoveEvent& e) {
 			value += delta;
 		}
 		else if (internal->rotaryDragEnabled) {
-			math::Vec origin = getAbsoluteOffset(box.size.div(2));
+			// The knob's centre where it is on screen (Rack 3D: on the model in the 3D view)
+			math::Vec origin;
+			rack3d::getScreenOffset(this, box.size.div(2), &origin);
 			math::Vec deltaPos = APP->scene->mousePos.minus(origin);
 			float angle = deltaPos.arg() + float(M_PI) / 2;
 

@@ -1206,6 +1206,19 @@ int runAppSelfTest() {
 			drag(center3d(knob), center3d(knob).plus(math::Vec(0, -40)));
 			check(knob->getParamQuantity()->getValue() != before, "3d input: dragging a knob in 3D turns it");
 
+			// Its value tooltip sits at the knob's bottom-right corner as drawn on the model, not where the hidden 2D
+			// rack would put it
+			bool savedTooltips = ::rack::settings::tooltips;
+			::rack::settings::tooltips = true;
+			knob->createTooltip();
+			APP->window->step();
+			widget::Widget* tip = APP->scene->children.back();
+			math::Vec corner = screenOf(knob->getRelativeOffset(knob->box.size, rack));
+			check(tip->isVisible() && tip->box.pos.minus(corner).norm() < 2.f, "3d tooltips: a knob's value tooltip appears at the knob on the model");
+			check(tip->box.pos.minus(knob->getAbsoluteOffset(knob->box.size)).norm() > 20.f, "3d tooltips: ...not at its hidden 2D position");
+			knob->destroyTooltip();
+			::rack::settings::tooltips = savedTooltips;
+
 			size_t n = rack->getCables().size();
 			app::PortWidget* out = lfo->getOutput(1);
 			app::PortWidget* in = vco->getInput(1);

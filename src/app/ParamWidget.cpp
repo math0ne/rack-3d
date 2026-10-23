@@ -1,4 +1,5 @@
 #include <app/ParamWidget.hpp>
+#include <rack3d/ModelView.hpp>
 #include <ui/MenuOverlay.hpp>
 #include <ui/MenuSeparator.hpp>
 #include <ui/TextField.hpp>
@@ -104,8 +105,12 @@ struct ParamTooltip : ui::Tooltip {
 			}
 		}
 		Tooltip::step();
-		// Position at bottom-right of parameter
-		box.pos = paramWidget->getAbsoluteOffset(paramWidget->box.size).round();
+		// Position at bottom-right of parameter, where it is on screen (Rack 3D: on the model in the 3D view, hidden
+		// if it's on no rack there)
+		math::Vec pos;
+		bool onScreen = rack3d::getScreenOffset(paramWidget, paramWidget->box.size, &pos);
+		setVisible(onScreen);
+		box.pos = pos.round();
 		// Fit inside parent (copied from Tooltip.cpp)
 		assert(parent);
 		box = box.nudge(parent->box.zeroPos());

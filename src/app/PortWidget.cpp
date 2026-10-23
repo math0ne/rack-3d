@@ -1,4 +1,5 @@
 #include <app/PortWidget.hpp>
+#include <rack3d/ModelView.hpp>
 #include <app/Scene.hpp>
 #include <ui/MenuItem.hpp>
 #include <ui/MenuSeparator.hpp>
@@ -72,8 +73,12 @@ struct PortTooltip : ui::Tooltip {
 			}
 		}
 		Tooltip::step();
-		// Position at bottom-right of parameter
-		box.pos = portWidget->getAbsoluteOffset(portWidget->box.size).round();
+		// Position at bottom-right of parameter, where it is on screen (Rack 3D: on the model in the 3D view, hidden
+		// if it's on no rack there)
+		math::Vec pos;
+		bool onScreen = rack3d::getScreenOffset(portWidget, portWidget->box.size, &pos);
+		setVisible(onScreen);
+		box.pos = pos.round();
 		// Fit inside parent (copied from Tooltip.cpp)
 		assert(parent);
 		box = box.nudge(parent->box.zeroPos());

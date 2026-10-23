@@ -511,6 +511,27 @@ ModelView* getModelView() {
 }
 
 
+bool getScreenOffset(widget::Widget* w, math::Vec v, math::Vec* out) {
+	app::RackWidget* rack = APP->scene->rack;
+	bool onRack = false;
+	for (widget::Widget* p = w; p; p = p->parent) {
+		if (p == rack) {
+			onRack = true;
+			break;
+		}
+	}
+	if (!onRack || !isModelViewShown()) {
+		*out = w->getAbsoluteOffset(v);
+		return true;
+	}
+	math::Vec viewPos;
+	if (!modelView->fromRackPos(w->getRelativeOffset(v, rack), &viewPos))
+		return false;
+	*out = modelView->getAbsoluteOffset(viewPos);
+	return true;
+}
+
+
 bool isModelViewShown() {
 	return modelView && modelView->isVisible();
 }
