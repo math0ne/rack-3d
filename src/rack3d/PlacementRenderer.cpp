@@ -100,6 +100,7 @@ void PlacementRenderer::clear() {
 
 static PlacementRenderer* renderer = NULL;
 static bool renderRequestedThisFrame = false;
+static std::vector<std::function<void()>> afterRender;
 
 
 PlacementRenderer* getRenderer() {
@@ -114,13 +115,23 @@ void requestRender() {
 }
 
 
+void requestAfterRender(std::function<void()> f) {
+	renderRequestedThisFrame = true;
+	afterRender.push_back(f);
+}
+
+
 void renderRequested() {
 	if (!renderRequestedThisFrame)
 		return;
 	renderRequestedThisFrame = false;
+	std::vector<std::function<void()>> after;
+	after.swap(afterRender);
 	if (!APP->window || !APP->scene)
 		return;
 	getRenderer()->render(APP->window->vg, APP->scene->rack);
+	for (auto& f : after)
+		f();
 }
 
 

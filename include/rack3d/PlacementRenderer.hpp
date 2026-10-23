@@ -1,5 +1,6 @@
 #pragma once
 #include <vector>
+#include <functional>
 
 #include <common.hpp>
 #include <math.hpp>
@@ -47,6 +48,10 @@ struct PlacementRenderer {
 PlacementRenderer* getRenderer();
 /** Asks for placement textures to be rendered before this frame is drawn. Call from Widget::step(). */
 void requestRender();
+/** Runs `f` right after this frame's placement textures are rendered, e.g. to render the 3D scene that uses them.
+Implies requestRender(). Call from Widget::step().
+*/
+void requestAfterRender(std::function<void()> f);
 /** Called by Window::step() between stepping and drawing the scene. Renders if requested this frame. */
 void renderRequested();
 /** Called by Window's destructor before deleting the NanoVG contexts. */

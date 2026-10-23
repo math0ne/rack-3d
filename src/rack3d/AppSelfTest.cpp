@@ -15,6 +15,7 @@
 #include <rack3d/TilesView.hpp>
 #include <render3d/gl.hpp>
 #include <rack3d/ModelRenderer.hpp>
+#include <rack3d/ModelView.hpp>
 #include <app/RackScrollWidget.hpp>
 #include <stb_image_write.h>
 #include <plugin.hpp>
@@ -812,6 +813,35 @@ int runAppSelfTest() {
 		}
 		model.destroy();
 		textures.clear();
+	}
+
+	// 3D view (F7) in real frames, with the acceptance patch
+	resetRack();
+	try {
+		APP->patch->load(asset::system("tests/rack3d/acceptance.vcv"));
+	}
+	catch (Exception& e) {
+		WARN("%s", e.what());
+	}
+	{
+		setModelViewShown(true);
+		check(isModelViewShown() && !APP->scene->rackScroll->isVisible(), "3d view: F7 view replaces the 2D rack");
+		for (int i = 0; i < 30; i++)
+			APP->window->step();
+		ModelView* view = getModelView();
+		check(view && view->renderer.target.texture, "3d view: the scene renders each frame");
+		float pr = APP->window->pixelRatio;
+		check(view && view->renderer.target.width == (int) std::round(view->box.size.x * pr), "3d view: it renders at the view's pixel size");
+		view->renderer.rotation = render3d::Quat::fromAxisAngle(render3d::Vec3(1, 0, 0), 0.45f) * render3d::Quat::fromAxisAngle(render3d::Vec3(0, 1, 0), -0.6f);
+		for (int i = 0; i < 5; i++)
+			APP->window->step();
+		APP->window->screenshot(asset::user("view3d.png"));
+		check(glGetError() == GL_NO_ERROR, "3d view: no GL errors");
+
+		setTilesViewShown(true);
+		check(isTilesViewShown() && !isModelViewShown() && !APP->scene->rackScroll->isVisible(), "3d view: F6 swaps it for the tiles view");
+		setTilesViewShown(false);
+		check(!isTilesViewShown() && !isModelViewShown() && APP->scene->rackScroll->isVisible(), "3d view: hiding both brings back the 2D rack");
 	}
 
 	// render3d GL helpers

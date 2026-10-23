@@ -14,6 +14,7 @@
 #include <patch.hpp>
 #include <asset.hpp>
 #include <rack3d/TilesView.hpp>
+#include <rack3d/ModelView.hpp>
 
 
 namespace rack {
@@ -245,6 +246,11 @@ void Scene::onHoverKey(const HoverKeyEvent& e) {
 		// Rack 3D: debug view of every rack placement's texture
 		if (e.isKeyCommand(GLFW_KEY_F6)) {
 			rack3d::toggleTilesView();
+			e.consume(this);
+		}
+		// Rack 3D: the 3D view
+		if (e.isKeyCommand(GLFW_KEY_F7)) {
+			rack3d::toggleModelView();
 			e.consume(this);
 		}
 		if (e.isKeyCommand(GLFW_KEY_F11)) {

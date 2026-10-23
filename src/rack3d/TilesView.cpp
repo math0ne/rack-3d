@@ -4,6 +4,7 @@
 #include <rack3d/PlacementRenderer.hpp>
 #include <rack3d/Layout.hpp>
 #include <rack3d/Placement.hpp>
+#include <rack3d/ModelView.hpp>
 #include <app/Scene.hpp>
 #include <app/RackScrollWidget.hpp>
 #include <app/RackWidget.hpp>
@@ -230,6 +231,9 @@ bool isTilesViewShown() {
 
 void setTilesViewShown(bool shown) {
 	app::Scene* scene = APP->scene;
+	// One texture view at a time
+	if (shown)
+		setModelViewShown(false);
 	if (!tilesView) {
 		if (!shown)
 			return;
@@ -238,7 +242,7 @@ void setTilesViewShown(bool shown) {
 		scene->addChildBelow(tilesView, scene->menuBar);
 	}
 	tilesView->setVisible(shown);
-	scene->rackScroll->setVisible(!shown);
+	scene->rackScroll->setVisible(!shown && !isModelViewShown());
 	INFO("Tiles view %s", shown ? "shown" : "hidden");
 }
 
