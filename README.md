@@ -18,7 +18,7 @@ It is an unofficial, hobby fork. It is not made, endorsed or supported by VCV. "
 - **Rack placements.** The single infinite rack is divided into *racks*: blocks of grid rows, each mapped onto a flat surface of a 3D model. The default model is a cube with one rack of 2 rows × 50 HP on each face.
   - Modules must sit inside a rack. Adding, dragging or pasting modules finds the nearest free spot, and patches made in stock Rack are fitted into the racks when they load.
   - The layout is saved in the patch under a `"rack3d"` key. Module positions are ordinary Rack grid positions, so plugins and undo history work unchanged.
-  - Turn this on and off with View → Rack 3D → Rack placements.
+  - On by default. Turn it off and on with View → Rack 3D → Rack placements.
 - **3D view (F7).** Shows the model with every rack live on its surface, and you play it there.
   - Knobs, ports, context menus, and module and cable dragging all work in 3D: mouse events are ray-cast onto the racks and handed to the normal rack widgets.
   - Drag empty space to spin the model; it keeps spinning when you let go.
@@ -79,6 +79,20 @@ It is an unofficial, hobby fork. It is not made, endorsed or supported by VCV. "
 - The only model is the cube. Loading other 3D models and placing racks on their flat surfaces is the long-term goal.
 - It has only been built and tested on **Windows** (MSYS2). macOS cannot run it: macOS supports at most OpenGL 4.1. Linux should work with a GL 4.5 driver, but is untested.
 
+## Download
+
+Windows builds are on the [Releases](https://github.com/math0ne/rack-3d/releases) page. Each one is a portable zip:
+
+1. Unzip it anywhere.
+2. Run `Rack.exe`. Nothing needs to be installed.
+3. Press **F7** for the 3D view.
+
+You need a GPU and driver with OpenGL 4.5.
+
+Rack 3D keeps its settings, plugins and autosave in its own user folder, `%LOCALAPPDATA%\Rack3D`. It never reads or moves stock VCV Rack's `Rack2` folder, so the two can be installed side by side. Only one of them can run at a time, as with two copies of upstream Rack. Log in from the Library menu to install plugins.
+
+Every push to `main` also builds the same zip, as an artifact of the [Build workflow](https://github.com/math0ne/rack-3d/actions/workflows/build.yml).
+
 ## Building
 
 Building is the same as [upstream's instructions](https://vcvrack.com/manual/Building), with these differences:
@@ -122,11 +136,42 @@ make -C plugins/Fundamental -j$(nproc)
 
 - **Development mode:** `./Rack -d` (or `make run`) loads plugins from `plugins/` and logs to the terminal. As in upstream, the VCV Library is disabled in this mode.
 - **Normal mode, with the Library:** run `scripts\Rack3D.bat` from Windows, optionally with a patch, for example `scripts\Rack3D.bat examples\chord-drone.vcv`.
-  - It runs Rack with its own user folder, `userdata\` in the checkout, so a stock VCV Rack install is never touched.
-  - On first run it copies Fundamental in and turns rack placements on.
+  - It runs Rack with the user folder `userdata\` in the checkout, separate from a release's `%LOCALAPPDATA%\Rack3D`.
+  - On first run it copies Fundamental in.
   - Log in from the Library menu to install plugins.
 - **Runtime DLLs:** `Rack.exe` needs MinGW's runtime DLLs (`libgcc_s_seh-1.dll`, `libstdc++-6.dll`, `libwinpthread-1.dll`) from `C:\msys64\mingw64\bin`. `Rack3D.bat` puts that folder on `PATH`. If you start `Rack.exe` another way, add it yourself.
 - **Opening the 3D view:** press **F7** (or View → Rack 3D). Only one Rack instance can run at a time, as in upstream.
+
+### Packaging
+
+`make dist DIST_HTML=` gathers a runnable folder in `dist/`:
+- `Rack.exe` and `libRack.dll` (stripped),
+- the resources,
+- MinGW's runtime DLLs,
+- the Fundamental plugin package, which Rack installs into the user folder on first run.
+
+`DIST_HTML=` skips the HTML copies of the docs, which need a `markdown` tool. Upstream's `make package` NSIS installer is not used, because it would install over VCV Rack 2 Free.
+
+### Continuous integration and releases
+
+`.github/workflows/build.yml` runs on GitHub Actions for every push and pull request. It:
+- builds on Windows in MSYS2, caching the built dependencies,
+- runs the unit tests,
+- uploads `Rack3D-<commit>-win-x64.zip` as an artifact.
+
+Pushing a version tag also publishes the zip as a GitHub release:
+
+```bash
+git tag v0.1.0
+```
+
+```bash
+git push origin v0.1.0
+```
+
+A tag with a hyphen, such as `v0.2.0-beta.1`, is marked as a pre-release.
+
+The in-app self-test needs a real OpenGL 4.5 GPU, which GitHub's runners don't have, so run it locally before tagging.
 
 ### Tests
 

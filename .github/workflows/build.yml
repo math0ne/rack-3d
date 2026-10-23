@@ -1,0 +1,110 @@
+# Builds Rack 3D for Windows on every push and pull request, runs the unit tests, and packages a portable zip.
+# Pushing a tag like v0.1.0 also publishes that zip as a GitHub release.
+#
+# The in-app self-test (tests/rack3d/run-app.sh) needs an OpenGL 4.5 GPU, which GitHub's runners don't have, so run it
+# locally before tagging.
+name: Build
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  windows:
+    name: Windows x64
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: msys2 {0}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: true
+          install: >-
+            git wget make tar unzip zip autoconf automake libtool python zstd jq
+            mingw-w64-x86_64-gcc mingw-w64-x86_64-cmake mingw-w64-x86_64-pkgconf
+
+      # Rack's dependencies take most of the build time; keep the built libraries until the dependency
+      # Makefile or a submodule changes
+      - name: Dependency cache key
+        id: depkey
+        run: |
+          git submodule status --recursive > build-submodules.txt
+          echo "hash=$(cat dep/Makefile build-submodules.txt | sha256sum | cut -c1-16)" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache@v4
+        id: depcache
+        with:
+          path: |
+            dep/bin
+            dep/include
+            dep/lib
+            dep/share
+          key: dep-win-x64-${{ steps.depkey.outputs.hash }}
+
+      - name: Build dependencies
+        if: steps.depcache.outputs.cache-hit != 'true'
+        run: make dep -j$(nproc)
+
+      - name: Build Rack 3D
+        run: make -j$(nproc)
+
+      - name: Unit tests
+        run: bash tests/rack3d/run.sh
+
+      - name: Package
+        id: package
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            version="${GITHUB_REF_NAME}"
+          else
+            version="$(git rev-parse --short HEAD)"
+          fi
+          name="Rack3D-${version}-win-x64"
+          # Rack's own dist step: Rack.exe, libRack.dll (stripped), resources, MinGW runtime DLLs and the Fundamental
+          # plugin package. The HTML copies of the docs need a markdown tool, so ship the Markdown instead.
+          make dist DIST_HTML=
+          mv dist/Rack2Free "dist/${name}"
+          cp README.md LICENSE.md LICENSE-dist.md "dist/${name}/"
+          mkdir -p "dist/${name}/examples"
+          cp examples/*.vcv "dist/${name}/examples/"
+          (cd dist && zip -q -9 -r "${name}.zip" "${name}")
+          echo "name=${name}" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.package.outputs.name }}
+          path: dist/${{ steps.package.outputs.name }}.zip
+          if-no-files-found: error
+
+  release:
+    name: Release
+    needs: windows
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/*.zip
+          generate_release_notes: true
+          prerelease: ${{ contains(github.ref_name, '-') }}
