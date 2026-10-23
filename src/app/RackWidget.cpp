@@ -315,7 +315,38 @@ void RackWidget::clear() {
 	}
 }
 
+/** Rack 3D: after loading a patch, fits its modules into the placements (see rack3d::Layout::fitBoxes()).
+Modules that don't fit go on the overflow shelf; they're marked so moveStrayModules() doesn't search for them.
+*/
+static void fitModulesIntoPlacements(RackWidget* rack) {
+	RackWidget::Internal* internal = rack->internal;
+	std::vector<ModuleWidget*> mws = rack->getModules();
+	std::vector<math::Rect> boxes;
+	for (ModuleWidget* mw : mws)
+		boxes.push_back(mw->getGridBox());
+
+	std::vector<math::Vec> positions;
+	int overflow = 0;
+	rack3d::Layout::FitResult result = internal->layout.fitBoxes(boxes, positions, &overflow);
+	if (result == rack3d::Layout::FIT_KEPT)
+		return;
+
+	for (size_t i = 0; i < mws.size(); i++) {
+		mws[i]->setGridPosition(positions[i]);
+		if (rack3d::isStray(mws[i]))
+			internal->strayGivenUp[mws[i]->module->id] = mws[i]->box.pos;
+	}
+	INFO("Fitted %d modules into racks (%s)", (int) mws.size(), result == rack3d::Layout::FIT_MOVED_BLOCK ? "moved as one block" : "packed by rows");
+	if (overflow > 0) {
+		WARN("%d modules didn't fit in any rack", overflow);
+		rack3d::warnOverflow(overflow);
+	}
+}
+
 void RackWidget::mergeJson(json_t* rootJ) {
+	// Rack 3D: placements. Stock Rack ignores this key.
+	json_object_set_new(rootJ, "rack3d", internal->layout.toJson());
+
 	// modules
 	json_t* modulesJ = json_object_get(rootJ, "modules");
 	if (!modulesJ)
@@ -397,10 +428,23 @@ void RackWidget::fromJson(json_t* rootJ) {
 		legacyV05 = true;
 	}
 
+	// Rack 3D: placements. Patches without them (stock patches, or ours resaved by stock Rack) get the default cube.
+	if (!internal->layout.fromJson(json_object_get(rootJ, "rack3d"))) {
+		internal->layout.clear();
+		internal->layout.addCube();
+	}
+	internal->strayGivenUp.clear();
+
 	// modules
 	json_t* modulesJ = json_object_get(rootJ, "modules");
 	if (!modulesJ)
 		return;
+
+	// Rack 3D: put modules exactly where the patch says, like stock. With placements on they're fitted into racks
+	// afterwards, all at once, instead of each one being pushed to its nearest free spot as it's created.
+	bool placementsEnabled = rack3d::settings::placementsEnabled;
+	rack3d::settings::placementsEnabled = false;
+	DEFER({rack3d::settings::placementsEnabled = placementsEnabled;});
 
 	size_t moduleIndex;
 	json_t* moduleJ;
@@ -440,6 +484,10 @@ void RackWidget::fromJson(json_t* rootJ) {
 
 		internal->moduleContainer->addChild(mw);
 	}
+
+	rack3d::settings::placementsEnabled = placementsEnabled;
+	if (placementsEnabled)
+		fitModulesIntoPlacements(this);
 
 	updateExpanders();
 

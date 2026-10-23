@@ -1,6 +1,8 @@
 #pragma once
 #include <vector>
 
+#include <jansson.h>
+
 #include <common.hpp>
 #include <math.hpp>
 
@@ -53,6 +55,29 @@ struct Layout {
 	Placement* placementAt(math::Vec gridPos);
 	/** The placement whose block is closest to the grid point (0 distance if inside). NULL if there are no placements. */
 	Placement* nearestPlacement(math::Vec gridPos);
+
+	/** Saves the placements to the patch's root "rack3d" object. */
+	json_t* toJson() const;
+	/** Replaces the placements with those from a patch's root "rack3d" object.
+	Returns false (and leaves the layout unchanged) if it's missing or invalid.
+	*/
+	bool fromJson(json_t* rack3dJ);
+
+	enum FitResult {
+		/** Every box was already inside a placement. */
+		FIT_KEPT,
+		/** The whole patch was moved as one block into a placement. */
+		FIT_MOVED_BLOCK,
+		/** Rows were split into runs of touching boxes and packed into placement rows. */
+		FIT_PACKED,
+	};
+	/** Fits module boxes (grid units, e.g. from a stock patch) into the placements. Writes each box's new grid
+	position to `positions`. Tries, in order: keep every box where it is; move the whole patch as one block into a
+	placement; pack runs of touching boxes (expander chains) into placement rows, left to right, closing gaps.
+	A run is never split, so expanders keep working. Runs that don't fit anywhere go on an overflow shelf below
+	every placement (outside all of them) and are counted in `overflow`. Boxes must not overlap.
+	*/
+	FitResult fitBoxes(const std::vector<math::Rect>& boxes, std::vector<math::Vec>& positions, int* overflow = NULL) const;
 
 	/** Moves `gridBox` the least distance needed to lie inside `p`'s block. The box must fit (size ≤ block size). */
 	static math::Rect clampInto(const Placement& p, math::Rect gridBox);

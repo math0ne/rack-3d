@@ -21,6 +21,9 @@ bool rejectIfStray(app::ModuleWidget* mw);
 /** Tells the user there's no room in any rack. */
 void warnNoRoom();
 
+/** Tells the user that `count` modules of a loaded patch didn't fit in any rack. */
+void warnOverflow(int count);
+
 /** Self-test support: when true, warnNoRoom() only counts instead of opening a dialog. */
 extern bool quietWarnings;
 extern int noRoomWarnings;

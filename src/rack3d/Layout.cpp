@@ -104,6 +104,151 @@ Placement* Layout::nearestPlacement(math::Vec gridPos) {
 }
 
 
+json_t* Layout::toJson() const {
+	json_t* rack3dJ = json_object();
+	json_object_set_new(rack3dJ, "version", json_integer(1));
+	json_t* placementsJ = json_array();
+	for (const Placement& p : placements) {
+		json_t* pJ = json_object();
+		json_object_set_new(pJ, "id", json_integer(p.id));
+		math::Rect r = p.gridRect;
+		json_object_set_new(pJ, "grid", json_pack("[i, i, i, i]", (int) r.pos.x, (int) r.pos.y, (int) r.size.x, (int) r.size.y));
+		json_array_append_new(placementsJ, pJ);
+	}
+	json_object_set_new(rack3dJ, "placements", placementsJ);
+	return rack3dJ;
+}
+
+
+bool Layout::fromJson(json_t* rack3dJ) {
+	if (!rack3dJ)
+		return false;
+	json_t* placementsJ = json_object_get(rack3dJ, "placements");
+	if (!json_is_array(placementsJ) || json_array_size(placementsJ) == 0)
+		return false;
+
+	Layout l;
+	size_t i;
+	json_t* pJ;
+	json_array_foreach(placementsJ, i, pJ) {
+		Placement p;
+		int x, y, w, h;
+		if (json_unpack(pJ, "{s:i, s:[i, i, i, i]}", "id", &p.id, "grid", &x, &y, &w, &h) != 0) {
+			WARN("rack3d: invalid placement %d in patch", (int) i);
+			return false;
+		}
+		p.gridRect = math::Rect(x, y, w, h);
+		if (!l.insertPlacement(p)) {
+			WARN("rack3d: placement %d in patch overlaps another or is empty", p.id);
+			return false;
+		}
+	}
+	*this = l;
+	return true;
+}
+
+
+Layout::FitResult Layout::fitBoxes(const std::vector<math::Rect>& boxes, std::vector<math::Vec>& positions, int* overflow) const {
+	positions.resize(boxes.size());
+	if (overflow)
+		*overflow = 0;
+	for (size_t i = 0; i < boxes.size(); i++)
+		positions[i] = boxes[i].pos;
+	if (boxes.empty())
+		return FIT_KEPT;
+
+	// 1. Everything already fits
+	auto isPlaced = [&](const math::Rect& b) {
+		for (const Placement& p : placements) {
+			if (p.gridRect.contains(b))
+				return true;
+		}
+		return false;
+	};
+	if (std::all_of(boxes.begin(), boxes.end(), isPlaced))
+		return FIT_KEPT;
+
+	// 2. The whole patch fits in one placement as a block
+	math::Rect bounds = boxes[0];
+	for (const math::Rect& b : boxes)
+		bounds = bounds.expand(b);
+	for (const Placement& p : placements) {
+		if (bounds.size.x <= p.gridRect.size.x && bounds.size.y <= p.gridRect.size.y) {
+			math::Vec delta = p.gridRect.pos.minus(bounds.pos);
+			for (size_t i = 0; i < boxes.size(); i++)
+				positions[i] = boxes[i].pos.plus(delta);
+			return FIT_MOVED_BLOCK;
+		}
+	}
+
+	// 3. Pack runs of touching boxes into placement rows
+	std::vector<size_t> order(boxes.size());
+	for (size_t i = 0; i < order.size(); i++)
+		order[i] = i;
+	std::sort(order.begin(), order.end(), [&](size_t a, size_t b) {
+		if (boxes[a].pos.y != boxes[b].pos.y)
+			return boxes[a].pos.y < boxes[b].pos.y;
+		return boxes[a].pos.x < boxes[b].pos.x;
+	});
+	// A run is a chain of boxes in one row where each box's left edge touches the previous box's right edge
+	std::vector<std::vector<size_t>> runs;
+	for (size_t i : order) {
+		if (!runs.empty()) {
+			const math::Rect& last = boxes[runs.back().back()];
+			if (last.pos.y == boxes[i].pos.y && last.getRight() == boxes[i].getLeft()) {
+				runs.back().push_back(i);
+				continue;
+			}
+		}
+		runs.push_back({i});
+	}
+
+	// Free cursor for each placement row, in placement then row order
+	struct Row {
+		float y, right, cursor;
+	};
+	std::vector<Row> rows;
+	for (const Placement& p : placements) {
+		for (int r = 0; r < (int) p.gridRect.size.y; r++)
+			rows.push_back({p.gridRect.pos.y + r, p.gridRect.getRight(), p.gridRect.getLeft()});
+	}
+	// Overflow shelf: one unbounded row below every block ever allocated
+	float shelfY = nextRow;
+	float shelfCursor = 0;
+
+	for (const std::vector<size_t>& run : runs) {
+		float width = 0;
+		for (size_t i : run)
+			width += boxes[i].size.x;
+		Row* row = NULL;
+		for (Row& r : rows) {
+			if (r.cursor + width <= r.right) {
+				row = &r;
+				break;
+			}
+		}
+		float x, y;
+		if (row) {
+			x = row->cursor;
+			y = row->y;
+			row->cursor += width;
+		}
+		else {
+			x = shelfCursor;
+			y = shelfY;
+			shelfCursor += width;
+			if (overflow)
+				*overflow += run.size();
+		}
+		for (size_t i : run) {
+			positions[i] = math::Vec(x, y);
+			x += boxes[i].size.x;
+		}
+	}
+	return FIT_PACKED;
+}
+
+
 math::Rect Layout::clampInto(const Placement& p, math::Rect gridBox) {
 	return gridBox.nudge(p.gridRect);
 }
@@ -207,6 +352,76 @@ int layoutSelfTest() {
 	check(l2.addPlacement(1, 10) == 9, "next id follows the largest inserted id");
 	Placement* c = l2.placementOf(math::Rect(0, 6, 1, 1));
 	check(c && c->id == 9, "next block goes below inserted blocks");
+
+	// JSON round-trip
+	{
+		Layout a;
+		a.addCube();
+		a.removePlacement(2);
+		json_t* j = a.toJson();
+		Layout b;
+		check(b.fromJson(j), "fromJson accepts toJson's output");
+		json_decref(j);
+		bool same = a.placements.size() == b.placements.size();
+		for (size_t i = 0; same && i < a.placements.size(); i++)
+			same = a.placements[i].id == b.placements[i].id && a.placements[i].gridRect.equals(b.placements[i].gridRect);
+		check(same, "JSON round-trip keeps ids and blocks");
+		check(b.addPlacement(1, 1) == 6 && b.getPlacement(6)->gridRect.pos.y == 24, "after loading, new ids and blocks continue after the loaded ones");
+		Layout c;
+		c.addCube();
+		check(!c.fromJson(NULL), "fromJson(NULL) fails");
+		json_t* bad = json_pack("{s:[{s:i, s:[i,i,i,i]}, {s:i, s:[i,i,i,i]}]}", "placements", "id", 0, "grid", 0, 0, 10, 2, "id", 1, "grid", 0, 2, 10, 2);
+		check(!c.fromJson(bad), "fromJson rejects blocks without a gutter");
+		json_decref(bad);
+		check(c.placements.size() == 6, "a rejected fromJson leaves the layout unchanged");
+	}
+
+	// Fitting stock patches
+	{
+		Layout cube;
+		cube.addCube();
+		std::vector<math::Vec> pos;
+		auto noOverlap = [&](const std::vector<math::Rect>& boxes) {
+			for (size_t i = 0; i < boxes.size(); i++)
+				for (size_t j = i + 1; j < boxes.size(); j++)
+					if (math::Rect(pos[i], boxes[i].size).intersects(math::Rect(pos[j], boxes[j].size)))
+						return false;
+			return true;
+		};
+		auto allPlaced = [&](const std::vector<math::Rect>& boxes) {
+			for (size_t i = 0; i < boxes.size(); i++)
+				if (!cube.placementOf(math::Rect(pos[i], boxes[i].size)))
+					return false;
+			return true;
+		};
+
+		std::vector<math::Rect> inside = {math::Rect(0, 0, 10, 1), math::Rect(20, 5, 10, 1)};
+		check(cube.fitBoxes(inside, pos) == Layout::FIT_KEPT && pos[1].equals(math::Vec(20, 5)), "fit: boxes already in placements are kept");
+
+		std::vector<math::Rect> small = {math::Rect(-30, -2, 10, 1), math::Rect(-20, -2, 6, 1), math::Rect(-30, -1, 8, 1)};
+		check(cube.fitBoxes(small, pos) == Layout::FIT_MOVED_BLOCK, "fit: a small patch is moved as a block");
+		check(pos[0].equals(math::Vec(0, 0)) && pos[1].equals(math::Vec(10, 0)) && pos[2].equals(math::Vec(0, 1)), "fit: ...keeping its shape");
+
+		// A wide patch: row 0 has runs [0..40) and [50..130) (80 HP, too wide for a block), row 1 has one module
+		std::vector<math::Rect> wide = {
+			math::Rect(0, 0, 20, 1), math::Rect(20, 0, 20, 1),
+			math::Rect(50, 0, 40, 1), math::Rect(90, 0, 40, 1),
+			math::Rect(10, 1, 10, 1),
+		};
+		int overflow = -1;
+		check(cube.fitBoxes(wide, pos, &overflow) == Layout::FIT_PACKED, "fit: a wide patch is packed");
+		check(pos[1].x - pos[0].x == 20 && pos[1].y == pos[0].y, "fit: a run of touching modules stays together");
+		check(overflow == 2 && pos[2].y == 24 && pos[3].y == 24 && pos[3].x - pos[2].x == 40, "fit: a run wider than any rack goes to the overflow shelf, intact");
+		check(cube.placementOf(math::Rect(pos[4], wide[4].size)) && cube.placementOf(math::Rect(pos[0], wide[0].size)), "fit: the rest is placed");
+		check(noOverlap(wide), "fit: no overlaps after packing");
+
+		// Many runs: they fill rows in order
+		std::vector<math::Rect> many;
+		for (int i = 0; i < 40; i++)
+			many.push_back(math::Rect(i * 25, i % 3, 20, 1));
+		check(cube.fitBoxes(many, pos, &overflow) == Layout::FIT_PACKED && overflow == 0, "fit: 40 runs of 20 HP all fit");
+		check(allPlaced(many) && noOverlap(many), "fit: ...placed, no overlaps");
+	}
 
 	if (failures == 0)
 		INFO("rack3d::Layout self-test passed");

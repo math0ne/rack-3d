@@ -7,6 +7,7 @@
 #include <app/Scene.hpp>
 #include <engine/Engine.hpp>
 #include <plugin.hpp>
+#include <patch.hpp>
 #include <context.hpp>
 
 
@@ -80,6 +81,52 @@ static json_t* blankJson(int hp, float x, float y) {
 	json_object_set_new(moduleJ, "data", dataJ);
 	json_object_set_new(moduleJ, "pos", json_pack("[f, f]", x, y));
 	return moduleJ;
+}
+
+
+/** JSON for a Core module with id and grid position. */
+static json_t* coreModuleJson(int64_t id, const char* model, float x, float y) {
+	json_t* moduleJ = json_object();
+	json_object_set_new(moduleJ, "id", json_integer(id));
+	json_object_set_new(moduleJ, "plugin", json_string("Core"));
+	json_object_set_new(moduleJ, "model", json_string(model));
+	json_object_set_new(moduleJ, "version", json_string(APP_VERSION.c_str()));
+	json_object_set_new(moduleJ, "pos", json_pack("[f, f]", x, y));
+	return moduleJ;
+}
+
+
+/** A stock patch (no "rack3d" key) too wide for one rack: a run of two touching Blanks (an expander pair), a wide
+Blank, and a MIDI-CV -> Audio cable across rows.
+*/
+static json_t* stockPatchJson() {
+	json_t* rootJ = json_object();
+	json_object_set_new(rootJ, "version", json_string(APP_VERSION.c_str()));
+	json_t* modulesJ = json_array();
+	json_t* a = coreModuleJson(1, "Blank", 0, 0);
+	json_object_set_new(a, "data", json_pack("{s:i}", "width", 10));
+	json_array_append_new(modulesJ, a);
+	json_t* b = coreModuleJson(2, "Blank", 10, 0);
+	json_object_set_new(b, "data", json_pack("{s:i}", "width", 10));
+	json_array_append_new(modulesJ, b);
+	json_t* c = coreModuleJson(3, "Blank", 40, 0);
+	json_object_set_new(c, "data", json_pack("{s:i}", "width", 60));
+	json_array_append_new(modulesJ, c);
+	json_array_append_new(modulesJ, coreModuleJson(4, "MIDIToCVInterface", 0, 1));
+	json_array_append_new(modulesJ, coreModuleJson(5, "AudioInterface2", 120, 1));
+	json_object_set_new(rootJ, "modules", modulesJ);
+	json_t* cablesJ = json_array();
+	json_array_append_new(cablesJ, json_pack("{s:i, s:i, s:i, s:i, s:i}", "id", 1, "outputModuleId", 4, "outputId", 0, "inputModuleId", 5, "inputId", 0));
+	json_object_set_new(rootJ, "cables", cablesJ);
+	return rootJ;
+}
+
+
+static std::map<int64_t, math::Vec> modulePositions() {
+	std::map<int64_t, math::Vec> positions;
+	for (app::ModuleWidget* mw : APP->scene->rack->getModules())
+		positions[mw->module->id] = gridPos(mw);
+	return positions;
 }
 
 
@@ -348,6 +395,53 @@ int runAppSelfTest() {
 		a->cloneAction(false);
 		check(rack->getModules().size() == n, "on: cloning with no room is rejected");
 	}
+
+	// Patch files: importing a stock patch
+	resetRack();
+	{
+		json_t* stockJ = stockPatchJson();
+		APP->patch->fromJson(stockJ);
+		json_decref(stockJ);
+		check(rack->getModules().size() == 5 && rack->getCables().size() == 1, "load: stock patch loads every module and its cable");
+		check(allInPlacements() && noOverlaps(), "load: a stock patch too wide for one rack is fitted into racks, no overlaps");
+		app::ModuleWidget* a = rack->getModule(1);
+		app::ModuleWidget* b = rack->getModule(2);
+		check(a && b && gridPos(b).x - gridPos(a).x == 10 && gridPos(b).y == gridPos(a).y, "load: touching modules stay touching");
+		check(a && b && a->module->rightExpander.module == b->module, "load: ...so the expander pair still works");
+	}
+
+	// Patch files: save -> load round-trip
+	{
+		std::map<int64_t, math::Vec> before = modulePositions();
+		json_t* savedJ = APP->patch->toJson();
+		json_t* placementsJ = json_object_get(json_object_get(savedJ, "rack3d"), "placements");
+		check(json_array_size(placementsJ) == 6, "save: the patch stores 6 placements");
+		APP->patch->fromJson(savedJ);
+		check(modulePositions() == before && rack->getCables().size() == 1, "load: save -> load keeps every position and cable");
+
+		// Stock Rack ignores "rack3d" and reads "pos": nothing moves
+		json_object_del(savedJ, "rack3d");
+		settings::placementsEnabled = false;
+		APP->patch->fromJson(savedJ);
+		check(modulePositions() == before && rack->getCables().size() == 1, "load: our patch opened like stock Rack would keeps every position");
+
+		// Resaved by stock Rack (no "rack3d" key) and reopened with placements on: still fits as-is
+		settings::placementsEnabled = true;
+		APP->patch->fromJson(savedJ);
+		check(modulePositions() == before, "load: our patch without its rack3d key reopens unchanged");
+		json_decref(savedJ);
+	}
+
+	// Patch files: placements off loads a stock patch like stock
+	settings::placementsEnabled = false;
+	{
+		json_t* stockJ = stockPatchJson();
+		APP->patch->fromJson(stockJ);
+		json_decref(stockJ);
+		app::ModuleWidget* e = rack->getModule(5);
+		check(e && gridPos(e).equals(math::Vec(120, 1)), "off: a stock patch loads with stock positions");
+	}
+	settings::placementsEnabled = true;
 
 	quietWarnings = false;
 	resetRack();

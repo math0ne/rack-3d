@@ -6,6 +6,7 @@
 #include <app/RackWidget.hpp>
 #include <app/Scene.hpp>
 #include <context.hpp>
+#include <string.hpp>
 
 
 namespace rack {
@@ -40,6 +41,15 @@ void warnNoRoom() {
 	if (quietWarnings)
 		return;
 	osdialog_message(OSDIALOG_WARNING, OSDIALOG_OK, "There's no room in any rack for this. Make some space and try again.");
+}
+
+
+void warnOverflow(int count) {
+	noRoomWarnings++;
+	if (quietWarnings)
+		return;
+	std::string message = string::f("%d modules in this patch didn't fit in any rack. They're on a shelf below the racks, outside the 3D object.", count);
+	osdialog_message(OSDIALOG_WARNING, OSDIALOG_OK, message.c_str());
 }
 
 
