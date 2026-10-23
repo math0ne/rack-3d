@@ -4,7 +4,7 @@
 
 It is an unofficial, hobby fork. It is not made, endorsed or supported by VCV. "VCV" and "VCV Rack" are trademarks of VCV; please send questions about this fork here, not to VCV Support.
 
-https://github.com/user-attachments/assets/b0bee9ec-bca1-4d68-baea-93b003220d22
+https://github.com/user-attachments/assets/94b58f96-ea41-42f4-a8ec-ca950a1272cf
 
 *The chord drone patch (`examples/chord-drone.vcv`) playing, sound on. The cube spins in the concrete plaza with its cables swinging and the sun's shadows moving across it, then the view zooms in to turn the 3D knobs on the Plaits voices.*
 
@@ -17,7 +17,7 @@ https://github.com/user-attachments/assets/b0bee9ec-bca1-4d68-baea-93b003220d22
 
 Bloom, the spectral flower module. Its petals open and close with each frequency band of the drone, over leaves that sway with the bass:
 
-https://github.com/user-attachments/assets/0f3e7a84-dac4-4b80-973e-5c30c2878e7d
+https://github.com/user-attachments/assets/f14c12c9-933c-4818-a129-49bb46f56b65
 
 ## What's different from VCV Rack
 
