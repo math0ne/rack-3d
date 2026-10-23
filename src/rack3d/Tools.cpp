@@ -197,7 +197,19 @@ static int previewPatch() {
 			APP->window->step();
 		APP->window->screenshot(string::f("%s-%d.png", out.c_str(), i + 1));
 	}
+	// Sixth: close in on the front-left corner, for the knobs, plugs and cable shadows
+	view->renderer.rotation = Quat::fromAxisAngle(Vec3(1, 0, 0), 0.25f) * Quat::fromAxisAngle(Vec3(0, 1, 0), 0.5f);
+	view->renderer.distance = ModelView::MIN_DISTANCE + 0.4f;
+	for (int f = 0; f < 90; f++)
+		APP->window->step();
+	APP->window->screenshot(string::f("%s-6.png", out.c_str()));
 	view->renderer.distance = distance;
+
+	// Seventh: the 2D rack, with its racks as blocks of rows
+	setModelViewShown(false);
+	for (int f = 0; f < 30; f++)
+		APP->window->step();
+	APP->window->screenshot(string::f("%s-7.png", out.c_str()));
 	return failures == 0 ? 0 : 1;
 }
 

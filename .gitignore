@@ -27,3 +27,6 @@
 /settings.json
 /screenshots
 /selections
+
+# Rack 3D: scripts/Rack3D.bat user folder
+/userdata

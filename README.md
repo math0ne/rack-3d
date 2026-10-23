@@ -1,17 +1,165 @@
-# VCV Rack
+# Rack 3D
+
+*Rack 3D* is an experimental fork of [VCV Rack](https://github.com/VCVRack/Rack) Free 2.6.6. Your modules live on the faces of a 3D object, and cables are physical ropes that hang, sag, bounce and wrap around its edges as you turn it.
+
+It is an unofficial, hobby fork. It is not made, endorsed or supported by VCV. "VCV" and "VCV Rack" are trademarks of VCV; please send questions about this fork here, not to VCV Support.
+
+![The chord drone patch on the Rack 3D cube, in the concrete plaza](docs/screens/cube.png)
+
+| | |
+|---|---|
+| ![Zoomed out: the cube over its plinth, sun shadows across the plaza](docs/screens/plaza.png) | ![Close up: 3D knobs, plugs, glowing cables and their shadows](docs/screens/closeup.png) |
+| ![From below: the bottom face, cables hanging under the cube](docs/screens/cube-below.png) | ![The 2D rack: each rack is a block of rows](docs/screens/rack-2d.png) |
+
+## What's different from VCV Rack
+
+### Racks on a 3D object
+
+- **Rack placements.** The single infinite rack is divided into *racks*: blocks of grid rows, each mapped onto a flat surface of a 3D model. The default model is a cube with one rack of 2 rows × 50 HP on each face.
+  - Modules must sit inside a rack. Adding, dragging or pasting modules finds the nearest free spot, and patches made in stock Rack are fitted into the racks when they load.
+  - The layout is saved in the patch under a `"rack3d"` key. Module positions are ordinary Rack grid positions, so plugins and undo history work unchanged.
+  - Turn this on and off with View → Rack 3D → Rack placements.
+- **3D view (F7).** Shows the model with every rack live on its surface, and you play it there.
+  - Knobs, ports, context menus, and module and cable dragging all work in 3D: mouse events are ray-cast onto the racks and handed to the normal rack widgets.
+  - Drag empty space to spin the model; it keeps spinning when you let go.
+  - Scroll to zoom, and double-click a rack to turn it to face you.
+- **Auto-orbit (F8).** Slowly turns and tips the model so every face comes round, including the top and bottom. It pauses while you use the view.
+- **Tiles view (F6).** Shows every rack's texture side by side, for debugging.
+
+### Physical cables
+
+- In the 3D view, cables are simulated ropes in world space (Verlet integration with stretch and bend constraints). They sag under gravity and swing when you turn the model. They also collide with it, with real thickness, so they wrap around corners instead of cutting through.
+- Plugs sit in their jacks, facing out of the panel. A cable you're dragging dangles from the pointer in 3D.
+- Every physics parameter can be tuned live in View → Rack 3D → Cable physics.
+
+### 3D controls
+
+- 3D knobs stand over the 2D knobs and turn with them. Knobs are drawn differently by size: silver trimpots, small and medium black knobs, and large gripped knobs with a cap.
+- Slider handles, push buttons, light buttons and toggle switches are also drawn in 3D and follow the module's state.
+
+### Scene
+
+- The model floats in a sunken plaza of giant brutalist concrete structures. The concrete is shaded procedurally, with plank seams, form-panel joints, tie holes and rain streaks.
+- **Lighting:**
+  - Lighting is computed in linear color.
+  - A low sun casts shadows from two shadow-map cascades: a sharp one around the model (knobs and cables shadow the panels) and a wide one for the buildings.
+  - A soft fill light from the camera side, sky and ground ambient, and specular highlights complete it.
+- **Fog:**
+  - Height fog pools near the ground and starts behind the model, so the modules stay crisp at any zoom.
+  - Light shafts are marched through the shadow map.
+- **Glow:** cables give off a soft glow, and panel LEDs and displays give off a little light of their own.
+- The settings are in View → Rack 3D → Scene:
+
+  | Setting | What it does |
+  |---|---|
+  | Concrete plaza, sun and fog | Turns the environment on or off. Off is the plain dark background. |
+  | Fog | How thick the haze and light shafts are. |
+  | Cable glow | How much the cables glow. |
+  | Contrast | Darkens shade and haze and brightens the sun. Glowing things stay bright. |
+  | Orbit speed | How fast auto-orbit turns. |
+
+### Renderer
+
+- Rack 3D renders with an **OpenGL 4.5 core profile** context and NanoVG's GL3 backend; upstream Rack uses OpenGL 2. The 3D view draws into a multisampled offscreen target that is composited into the normal NanoVG frame.
+- Plugins that draw only with NanoVG (nearly all of them) work unchanged. Plugins that make legacy fixed-function OpenGL calls of their own will not work in a core profile.
+
+### Developer tools
+
+- `RACK3D_TOOL=dump|preview|devices` runs a tool instead of the normal window. `scripts/rack3d-tool.sh` wraps all three; see `include/rack3d/Tools.hpp`.
+  - `dump` writes every module's ports and parameters as JSON, so patches can be written by script.
+  - `preview` loads a patch, checks that every module and cable loaded and sits in a rack, logs each module's output level, and saves screenshots.
+  - `devices` lists the audio devices.
+- Tests:
+  - `tests/rack3d/run.sh` runs the unit tests (layout, cable physics, math).
+  - `tests/rack3d/run-app.sh` runs an in-app self-test of about 140 checks against the live rack, with real modules, rendering and input.
+- `examples/chord-drone.vcv` is a six-voice chord drone over all six faces, made with Mutable Instruments (Audible Instruments), Fundamental and Valley Plateau. `scripts/make_chord_drone.py` generates it.
+
+### Not done yet
+
+- The only model is the cube. Loading other 3D models and placing racks on their flat surfaces is the long-term goal.
+- It has only been built and tested on **Windows** (MSYS2). macOS cannot run it: macOS supports at most OpenGL 4.1. Linux should work with a GL 4.5 driver, but is untested.
+
+## Building
+
+Building is the same as [upstream's instructions](https://vcvrack.com/manual/Building), with these differences:
+
+- You need a GPU and driver with **OpenGL 4.5**.
+- Clone this repository instead of VCVRack/Rack.
+- Only the Windows build is tested.
+
+### Windows (MSYS2 MINGW64)
+
+1. Install [MSYS2](https://www.msys2.org/), open the **MINGW64** shell, and update it. Run this twice; the first pass may only update the core packages and close the shell.
+
+```bash
+pacman -Syu
+```
+
+2. Install the toolchain.
+
+```bash
+pacman -S --needed git wget make tar unzip zip autoconf automake libtool python zstd jq mingw-w64-x86_64-gcc mingw-w64-x86_64-gdb mingw-w64-x86_64-cmake mingw-w64-x86_64-pkgconf
+```
+
+3. Clone with submodules, build the dependencies (slow, run once), then build Rack.
+
+```bash
+git clone --recursive https://github.com/math0ne/rack-3d.git Rack
+cd Rack
+make dep -j$(nproc)
+make -j$(nproc)
+```
+
+4. Build the Fundamental plugin into `plugins/`. The tests and the example patch use it.
+
+```bash
+git clone --recursive https://github.com/VCVRack/Fundamental.git plugins/Fundamental
+make -C plugins/Fundamental dep
+make -C plugins/Fundamental -j$(nproc)
+```
+
+### Running
+
+- **Development mode:** `./Rack -d` (or `make run`) loads plugins from `plugins/` and logs to the terminal. As in upstream, the VCV Library is disabled in this mode.
+- **Normal mode, with the Library:** run `scripts\Rack3D.bat` from Windows, optionally with a patch, for example `scripts\Rack3D.bat examples\chord-drone.vcv`.
+  - It runs Rack with its own user folder, `userdata\` in the checkout, so a stock VCV Rack install is never touched.
+  - On first run it copies Fundamental in and turns rack placements on.
+  - Log in from the Library menu to install plugins.
+- **Runtime DLLs:** `Rack.exe` needs MinGW's runtime DLLs (`libgcc_s_seh-1.dll`, `libstdc++-6.dll`, `libwinpthread-1.dll`) from `C:\msys64\mingw64\bin`. `Rack3D.bat` puts that folder on `PATH`. If you start `Rack.exe` another way, add it yourself.
+- **Opening the 3D view:** press **F7** (or View → Rack 3D). Only one Rack instance can run at a time, as in upstream.
+
+### Tests
+
+From the MINGW64 shell in the checkout, after `make`:
+
+```bash
+bash tests/rack3d/run.sh
+```
+
+```bash
+bash tests/rack3d/run-app.sh
+```
+
+The in-app test opens a window briefly and uses a throwaway user folder.
+
+## License
+
+Same as upstream: Rack's source code is GPLv3. See [LICENSE.md](LICENSE.md) for the full terms, including the components under other licenses. The upstream credits below are kept as they were.
+
+---
+
+## Upstream: VCV Rack
 
 *Rack* is the host application for the VCV virtual Eurorack modular synthesizer platform.
 
 - [VCV website](https://vcvrack.com/)
 - [Manual](https://vcvrack.com/manual/)
-- [Support](https://vcvrack.com/support)
 - [Module Library](https://library.vcvrack.com/)
 - [Rack source code](https://github.com/VCVRack/Rack)
 - [Building](https://vcvrack.com/manual/Building)
 - [Communities](https://vcvrack.com/manual/Communities)
-- [Licenses](LICENSE.md) ([HTML](LICENSE.html))
 
-## Acknowledgments
+### Acknowledgments
 
 - [Andrew Belt](https://github.com/AndrewBelt): Lead Rack developer
 - [Pyer](https://www.pyer.be/): Module design, component graphics
@@ -26,9 +174,8 @@
 	- Chinese (Simplified): NoiseTone
 	- Japanese: [Leo Kuroshita](https://x.com/kurogedelic)
 - Rack plugin developers: Authorship shown on each plugin's [VCV Library](https://library.vcvrack.com/) page
-- Rack users like you: [Bug reports and feature requests](https://vcvrack.com/support)
 
-## Dependency libraries
+### Dependency libraries
 
 - [GLFW](https://www.glfw.org/)
 - [GLEW](http://glew.sourceforge.net/)
@@ -49,11 +196,3 @@
 - [RtAudio](https://www.music.mcgill.ca/~gary/rtaudio/)
 - [Fuzzy Search Database](https://bitbucket.org/j_norberg/fuzzysearchdatabase) (written by Nils Jonas Norberg for VCV Rack's module browser)
 - [TinyExpr](https://codeplea.com/tinyexpr) (for math evaluation in parameter context menu)
-
-## Contributions
-
-VCV is unable to accept outside code contributions, but if you wish to contribute to the VCV Rack software, you can:
-- Request a feature or report a bug to [VCV Support](https://vcvrack.com/support).
-- [Learn about Rack](https://vcvrack.com/manual/) and answer questions in the [VCV communities](https://vcvrack.com/manual/Communities).
-- [Develop your own Rack plugin](https://vcvrack.com/manual/PluginDevelopmentTutorial), or help maintain an existing plugin.
-- Apply for a [job at VCV](https://vcvrack.com/jobs).
