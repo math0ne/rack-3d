@@ -54,9 +54,10 @@ void Layout::clear() {
 }
 
 
-std::vector<int> Layout::addCube() {
+/** Gives 6 placements (in face order) the surfaces of the cube's faces. */
+static void setCubeSurfaces(Layout& layout, const std::vector<int>& ids) {
 	using render3d::Vec3;
-	const float h = CUBE_SIZE / 2;
+	const float h = Layout::CUBE_SIZE / 2;
 	// origin (top-left corner), right, down for each face
 	const Vec3 faces[6][3] = {
 		{Vec3(-h, h, h), Vec3(1, 0, 0), Vec3(0, -1, 0)}, // front, +z
@@ -66,17 +67,22 @@ std::vector<int> Layout::addCube() {
 		{Vec3(-h, h, -h), Vec3(1, 0, 0), Vec3(0, 0, 1)}, // top, +y
 		{Vec3(-h, -h, h), Vec3(1, 0, 0), Vec3(0, 0, -1)}, // bottom, -y
 	};
-	std::vector<int> ids;
 	for (int i = 0; i < 6; i++) {
-		int id = addPlacement(CUBE_ROWS, CUBE_HP);
-		Placement* p = getPlacement(id);
+		Placement* p = layout.getPlacement(ids[i]);
 		p->hasSurface = true;
 		p->surface.origin = faces[i][0];
 		p->surface.right = faces[i][1];
 		p->surface.down = faces[i][2];
-		p->surface.unitsPerPx = CUBE_SIZE / getRackRect(*p).size.x;
-		ids.push_back(id);
+		p->surface.unitsPerPx = Layout::CUBE_SIZE / Layout::getRackRect(*p).size.x;
 	}
+}
+
+
+std::vector<int> Layout::addCube() {
+	std::vector<int> ids;
+	for (int i = 0; i < 6; i++)
+		ids.push_back(addPlacement(CUBE_ROWS, CUBE_HP));
+	setCubeSurfaces(*this, ids);
 	return ids;
 }
 
@@ -186,6 +192,24 @@ bool Layout::fromJson(json_t* rack3dJ) {
 			return false;
 		}
 	}
+
+	// Patches saved before surfaces existed: if the blocks are exactly the default cube's, it's the cube
+	bool anySurface = false;
+	for (const Placement& p : l.placements)
+		anySurface = anySurface || p.hasSurface;
+	if (!anySurface && l.placements.size() == 6) {
+		Layout cube;
+		cube.addCube();
+		bool isCube = true;
+		std::vector<int> ids;
+		for (size_t i = 0; i < 6; i++) {
+			isCube = isCube && l.placements[i].gridRect.equals(cube.placements[i].gridRect);
+			ids.push_back(l.placements[i].id);
+		}
+		if (isCube)
+			setCubeSurfaces(l, ids);
+	}
+
 	*this = l;
 	return true;
 }
@@ -467,6 +491,16 @@ int layoutSelfTest() {
 		Layout plain;
 		int id = plain.addPlacement(2, 20);
 		check(!plain.getPlacement(id)->hasSurface, "a plain placement has no surface");
+
+		// A cube saved before surfaces existed gets them back
+		json_t* oldJ = cube.toJson();
+		size_t pi;
+		json_t* pJ;
+		json_array_foreach(json_object_get(oldJ, "placements"), pi, pJ)
+			json_object_del(pJ, "surface");
+		Layout old;
+		check(old.fromJson(oldJ) && old.placements.size() == 6 && old.placements[2].hasSurface && old.placements[2].surface.normal().isNear(Vec3(0, 0, -1)), "a cube saved without surfaces gets the cube's surfaces");
+		json_decref(oldJ);
 	}
 
 	// Fitting stock patches
