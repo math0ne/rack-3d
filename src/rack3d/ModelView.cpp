@@ -413,9 +413,6 @@ void ModelView::updateControls() {
 			math::Vec size = el->box.size;
 			if (size.x <= 0 || size.y <= 0)
 				continue;
-			auto flat = [&](math::Vec local) {
-				return s.toModel(el->getRelativeOffset(local, rack).minus(origin));
-			};
 			math::Vec hingeA, hingeB;
 			switch (el->hinge) {
 				case Element3D::HINGE_BOTTOM: hingeA = math::Vec(0, size.y); hingeB = size; break;
@@ -423,6 +420,16 @@ void ModelView::updateControls() {
 				case Element3D::HINGE_LEFT: hingeA = math::Vec(0, 0); hingeB = math::Vec(0, size.y); break;
 				case Element3D::HINGE_RIGHT: hingeA = math::Vec(size.x, 0); hingeB = size; break;
 			}
+			// On the panel, turned by the element's angle around the middle of its hinge (clockwise as seen on the panel,
+			// which is negative around the outward normal)
+			auto onPanel = [&](math::Vec local) {
+				return s.toModel(el->getRelativeOffset(local, rack).minus(origin));
+			};
+			render3d::Vec3 pivot = (onPanel(hingeA) + onPanel(hingeB)) * 0.5f;
+			render3d::Quat turn = render3d::Quat::fromAxisAngle(s.normal(), -el->angle);
+			auto flat = [&](math::Vec local) {
+				return pivot + turn.rotate(onPanel(local) - pivot);
+			};
 			render3d::Vec3 h0 = flat(hingeA);
 			render3d::Vec3 axis = (flat(hingeB) - h0).normalize();
 			render3d::Vec3 n = s.normal();

@@ -18,6 +18,7 @@ extern Model* modelGate_MIDI;
 extern Model* modelBlank;
 extern Model* modelNotes;
 extern Model* modelTester3D;
+extern Model* modelBloom;
 
 
 template <class TChoice>

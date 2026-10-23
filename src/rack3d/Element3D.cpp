@@ -12,14 +12,14 @@ void Element3D::drawContent(const DrawArgs& args) {
 
 
 void Element3D::draw(const DrawArgs& args) {
-	if (isDrawingRackTextures())
+	if (isDrawingRackTextures() || !flatIn2D)
 		return;
 	drawContent(args);
 }
 
 
 void Element3D::drawLayer(const DrawArgs& args, int layer) {
-	if (isDrawingRackTextures())
+	if (isDrawingRackTextures() || !flatIn2D)
 		return;
 	Widget::drawLayer(args, layer);
 }

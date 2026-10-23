@@ -196,6 +196,8 @@ plateau = Module("Valley", "Plateau", {
 	"Reverb high cut": 7.0, "Modulation rate": 0.15, "Modulation shape": 0.5, "Modulation depth": 3.0,
 }, data={"diffuseInput": 1, "freezeToggle": False, "frozen": False, "inputSensitivity": 0, "outputSaturation": 0,
 	"panelStyle": 1, "preDelayCVSens": 0, "tuned": 0})
+# Bloom: the spectral flower. Audio passes straight through; its six petals open in 3D with each band's loudness
+bloom = Module("Core", "Bloom", {"Sensitivity": 0.2, "Release": 0.45, "Opening at rest": 0.05, "Hue": 0.9})
 # DirectSound's "Primary Sound Driver" follows the Windows default output, so the patch sounds without picking a
 # device (an Audio module saved with no device stays silent). Pick another in the module's menu if you like.
 # About -4 dB: Plateau peaks near 5 V (-6 dBFS) and its long tail keeps building
@@ -215,6 +217,7 @@ place(2, 0, veils_a, veils_b, mixer)     # back: mix
 place(2, 1, merge, glide, split)         #       pitch glide
 place(3, 0, delay, lfo_a)                # left: delay + timbre LFO
 place(4, 0, clouds, plateau)             # top: Clouds + Plateau
+place(4, 1, bloom)                       #      Bloom, the last stage before the output
 notes = Module("Core", "Notes", data={"text": "Chord drone\n\nCmaj9 - Am9 - Fmaj9 - G6/9, about 14 s each.\n"
 	"Front/right: voices + chord sequencers\nBack: mix + pitch glide\nLeft: delay\nTop: Clouds -> Plateau\n"
 	"Bottom: audio out\n\nEverything unpatched is decoration."})
@@ -292,8 +295,10 @@ cable(mixer.out("Mix"), delay.inp("Audio"), OUT_C)
 cable(delay.out("Mix"), clouds.inp("Left"), OUT_C)
 cable(clouds.out("Left"), plateau.inp("Left"), OUT_C)
 cable(clouds.out("Right"), plateau.inp("Right"), OUT_C)
-cable(plateau.out("Left"), audio.inp('To "device output 1"'), OUT_C)
-cable(plateau.out("Right"), audio.inp('To "device output 2"'), OUT_C)
+cable(plateau.out("Left"), bloom.inp("Left"), OUT_C)
+cable(plateau.out("Right"), bloom.inp("Right"), OUT_C)
+cable(bloom.out("Left"), audio.inp('To "device output 1"'), OUT_C)
+cable(bloom.out("Right"), audio.inp('To "device output 2"'), OUT_C)
 
 cable(lfo_a.out("Triangle"), v1.inp("Timbre"), MOD)
 cable(lfo_b.out("Sine"), v2.inp("Morph"), MOD)

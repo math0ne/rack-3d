@@ -19,6 +19,7 @@ void init(rack::Plugin* p) {
 	p->addModel(modelBlank);
 	p->addModel(modelNotes);
 	p->addModel(modelTester3D);
+	p->addModel(modelBloom);
 }
 
 

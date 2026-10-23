@@ -931,6 +931,55 @@ int runAppSelfTest() {
 				APP->window->step();
 				check(view->elementWidgets.empty() || std::find(view->elementWidgets.begin(), view->elementWidgets.end(), fin) == view->elementWidgets.end(), "3d elements: a removed module's fin is gone");
 			}
+
+			// Bloom: six petals turned to point outward around a floating hub; with no sound they close into a bud
+			plugin::Model* bloomModel = plugin::getModel("Core", "Bloom");
+			check(bloomModel, "bloom: Core has Bloom");
+			if (bloomModel) {
+				engine::Module* module = bloomModel->createModule();
+				APP->engine->addModule(module);
+				app::ModuleWidget* mw = bloomModel->createModuleWidget(module);
+				rack->addModule(mw);
+				rack->setModulePosNearest(mw, gridPx(36, 6));
+				for (int i = 0; i < 60; i++)
+					APP->window->step();
+				std::vector<const ElementDraw*> petals;
+				const ElementDraw* hub = NULL;
+				for (size_t i = 0; i < view->elementWidgets.size(); i++) {
+					if (!view->elementWidgets[i]->isDescendantOf(mw))
+						continue;
+					if (view->elementWidgets[i]->flatIn2D)
+						hub = &view->elements[i];
+					else
+						petals.push_back(&view->elements[i]);
+				}
+				check(petals.size() == 6 && hub, "bloom: six petals and a hub in 3D");
+				const Placement* p = rack->getLayout()->placementOf(mw->getGridBox());
+				if (petals.size() == 6 && hub && p) {
+					render3d::Vec3 n = p->surface.normal();
+					render3d::Vec3 hubCenter = (hub->corners[0] + hub->corners[2]) * 0.5f;
+					// The hub floats: its centre stands in front of the panel
+					render3d::Vec3 panelCenter = p->surface.toModel(mw->getRelativeOffset(math::Vec(mw->box.size.x / 2, 128), rack).minus(rack3d::Layout::getRackRect(*p).pos));
+					check((hubCenter - panelCenter).dot(n) > 0.005f, "bloom: the hub floats above the panel");
+					float minR = INFINITY, maxR = 0;
+					bool budClosed = true;
+					for (const ElementDraw* d : petals) {
+						render3d::Vec3 hinge = (d->corners[2] + d->corners[3]) * 0.5f;
+						render3d::Vec3 rim = hinge - panelCenter;
+						rim = rim - n * rim.dot(n);
+						minR = std::fmin(minR, rim.norm());
+						maxR = std::fmax(maxR, rim.norm());
+						// Closed: the tip leans back in over the hub
+						render3d::Vec3 tip = (d->corners[0] + d->corners[1]) * 0.5f;
+						budClosed = budClosed && (tip - hinge).dot(rim.normalize()) < 0;
+					}
+					check(maxR - minR < 0.01f * maxR + 1e-4f, "bloom: the petals' hinges sit evenly on the hub's rim");
+					check(budClosed, "bloom: with no sound the petals close into a bud");
+				}
+				rack->removeModule(mw);
+				delete mw;
+				APP->window->step();
+			}
 		}
 		view->renderer.rotation = render3d::Quat::fromAxisAngle(render3d::Vec3(1, 0, 0), 0.45f) * render3d::Quat::fromAxisAngle(render3d::Vec3(0, 1, 0), -0.6f);
 		for (int i = 0; i < 120; i++)

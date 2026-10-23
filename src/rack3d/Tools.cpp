@@ -205,6 +205,50 @@ static int previewPatch() {
 	APP->window->screenshot(string::f("%s-6.png", out.c_str()));
 	view->renderer.distance = distance;
 
+	// RACK3D_TOOL_FOCUS=<model slug>: two more shots of that module's rack turned to face the camera, straight on and
+	// from the side, for checking a module's 3D elements
+	std::string focus = env("RACK3D_TOOL_FOCUS");
+	if (!focus.empty()) {
+		app::ModuleWidget* target = NULL;
+		for (app::ModuleWidget* mw : rack->getModules()) {
+			if (mw->model->slug == focus)
+				target = mw;
+		}
+		const Placement* p = target ? rack->getLayout()->placementOf(target->getGridBox()) : NULL;
+		if (!p) {
+			WARN("preview: no %s on a rack to focus on", focus.c_str());
+			failures++;
+		}
+		else {
+			// Every output of the focused module, e.g. a follower's band levels
+			for (int i = 0; i < (int) target->module->outputs.size(); i++) {
+				std::string name = target->module->outputInfos[i]->getName();
+				INFO("preview: focus %s output %-28s %6.2f V", focus.c_str(), name.c_str(), target->module->outputs[i].getVoltage());
+			}
+			view->snapToPlacement(p->id);
+			for (int f = 0; f < 60; f++)
+				APP->window->step();
+			Quat facing = view->renderer.rotation;
+			// Centre the camera on the module, close in
+			math::Vec centerPx = target->getRelativeOffset(target->box.size.div(2), rack).minus(Layout::getRackRect(*p).pos);
+			auto aimAtModule = [&]() {
+				view->renderer.lookAt = view->renderer.rotation.rotate(p->surface.toModel(centerPx));
+			};
+			aimAtModule();
+			view->renderer.distance = 1.5f;
+			for (int f = 0; f < 30; f++)
+				APP->window->step();
+			APP->window->screenshot(string::f("%s-focus-1.png", out.c_str()));
+			view->renderer.rotation = Quat::fromAxisAngle(Vec3(1, 0, 0), 0.5f) * Quat::fromAxisAngle(Vec3(0, 1, 0), -0.55f) * facing;
+			aimAtModule();
+			for (int f = 0; f < 60; f++)
+				APP->window->step();
+			APP->window->screenshot(string::f("%s-focus-2.png", out.c_str()));
+			view->renderer.distance = distance;
+			view->renderer.lookAt = Vec3();
+		}
+	}
+
 	// Seventh: the 2D rack, with its racks as blocks of rows
 	setModelViewShown(false);
 	for (int f = 0; f < 30; f++)

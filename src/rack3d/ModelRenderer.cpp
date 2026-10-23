@@ -381,7 +381,7 @@ Mat4 ModelRenderer::getViewProjection(int width, int height) const {
 	float aspect = height > 0 ? (float) width / height : 1.f;
 	// Far enough for the sky box's corners
 	Mat4 proj = Mat4::perspective(fovY, aspect, 0.1f, 400.f);
-	Mat4 view = Mat4::lookAt(Vec3(0, 0, distance), Vec3(0, 0, 0), Vec3(0, 1, 0));
+	Mat4 view = Mat4::lookAt(lookAt + Vec3(0, 0, distance), lookAt, Vec3(0, 1, 0));
 	return proj * view;
 }
 
@@ -926,12 +926,13 @@ void ModelRenderer::render(int width, int height, Layout* layout, PlacementRende
 	glUniform1i(glGetUniformLocation(program, "uShadowNear"), 1);
 	glUniform1i(glGetUniformLocation(program, "uShadowFar"), 2);
 	glUniform1i(glGetUniformLocation(program, "uEnvironment"), shadows);
-	glUniform3f(glGetUniformLocation(program, "uCamPos"), 0, 0, distance);
+	Vec3 eye = lookAt + Vec3(0, 0, distance);
+	glUniform3f(glGetUniformLocation(program, "uCamPos"), eye.x, eye.y, eye.z);
 	glUniform3f(glGetUniformLocation(program, "uSunDir"), sunDir.x, sunDir.y, sunDir.z);
 	glUniform1f(glGetUniformLocation(program, "uFog"), fog);
 	glUniform1f(glGetUniformLocation(program, "uFloorY"), environment::FLOOR_Y);
 	glUniform1f(glGetUniformLocation(program, "uShadowTexel"), 1.f / SHADOW_SIZE);
-	glUniform1f(glGetUniformLocation(program, "uFogStart"), distance + 2.f);
+	glUniform1f(glGetUniformLocation(program, "uFogStart"), eye.norm() + 2.f);
 	glUniform1f(glGetUniformLocation(program, "uExposure"), exposure);
 	// Contrast 0 is the plain lighting; 1 drops the soft light to a fifth and lifts the sun by half
 	glUniform1f(glGetUniformLocation(program, "uFill"), 1.f - 0.8f * contrast);

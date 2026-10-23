@@ -99,8 +99,10 @@ struct ElementDraw {
 struct ModelRenderer {
 	/** Model orientation. */
 	render3d::Quat rotation;
-	/** Camera distance from the model's centre, looking at it along -z. */
+	/** Camera distance from what it looks at, looking along -z. */
 	float distance = 6.f;
+	/** The point the camera looks at, world space: the model's centre unless panned. */
+	render3d::Vec3 lookAt;
 	/** Vertical field of view, radians. */
 	float fovY = 35.f * M_PI / 180.f;
 	/** Background color (straight, not premultiplied), behind the model when there's no environment. */

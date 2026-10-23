@@ -135,6 +135,15 @@
       "tags": [
         "Visual"
       ]
+    },
+    {
+      "slug": "Bloom",
+      "name": "Bloom",
+      "description": "Rack 3D spectral flower: six petals open in the 3D view as their frequency band gets louder; passes audio through and outputs each band's level as CV",
+      "tags": [
+        "Visual",
+        "Envelope follower"
+      ]
     }
   ]
 }
