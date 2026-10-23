@@ -199,7 +199,12 @@ static bool noOverlaps() {
 }
 
 
+bool selfTestRunning = false;
+
+
 int runAppSelfTest() {
+	selfTestRunning = true;
+	DEFER({selfTestRunning = false;});
 	int failures = 0;
 	auto check = [&](bool ok, const char* what) {
 		if (!ok) {
@@ -677,7 +682,13 @@ int runAppSelfTest() {
 		settings::placementsEnabled = false;
 		loadAcceptance();
 		json_t* offJ = engineJson();
-		check(json_equal(onJ, offJ), "acceptance: the engine's patch is identical with placements on and off (so is the audio)");
+		bool same = json_equal(onJ, offJ);
+		check(same, "acceptance: the engine's patch is identical with placements on and off (so is the audio)");
+		if (!same) {
+			// Keep both for diffing
+			json_dump_file(onJ, asset::user("engine-on.json").c_str(), JSON_INDENT(2) | JSON_SORT_KEYS);
+			json_dump_file(offJ, asset::user("engine-off.json").c_str(), JSON_INDENT(2) | JSON_SORT_KEYS);
+		}
 		json_decref(onJ);
 		json_decref(offJ);
 		settings::placementsEnabled = true;

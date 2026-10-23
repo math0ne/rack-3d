@@ -24,6 +24,7 @@
 #include <plugin.hpp> // used in Window::screenshot
 #include <system.hpp> // used in Window::screenshot
 #include <rack3d/PlacementRenderer.hpp>
+#include <rack3d/AppSelfTest.hpp>
 
 #if defined ARCH_LIN
 	// For XkbGetState for directly getting mod keys
@@ -447,18 +448,21 @@ void Window::step() {
 
 	// Poll events
 	// Save and restore context because event handler set their own context based on which window they originate from.
-	Context* context = contextGet();
-	glfwPollEvents();
-	contextSet(context);
+	// Rack 3D: the in-app self-test injects its own input, so it must not see the real mouse and keyboard
+	if (!rack3d::selfTestRunning) {
+		Context* context = contextGet();
+		glfwPollEvents();
+		contextSet(context);
 
-	// In case glfwPollEvents() sets another OpenGL context
-	glfwMakeContextCurrent(win);
+		// In case glfwPollEvents() sets another OpenGL context
+		glfwMakeContextCurrent(win);
 
-	// Call cursorPosCallback every frame, not just when the mouse moves
-	{
-		double xpos, ypos;
-		glfwGetCursorPos(win, &xpos, &ypos);
-		cursorPosCallback(win, xpos, ypos);
+		// Call cursorPosCallback every frame, not just when the mouse moves
+		{
+			double xpos, ypos;
+			glfwGetCursorPos(win, &xpos, &ypos);
+			cursorPosCallback(win, xpos, ypos);
+		}
 	}
 	gamepad::step();
 

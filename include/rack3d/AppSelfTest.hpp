@@ -12,6 +12,11 @@ Returns the number of failed checks and logs each failure.
 */
 int runAppSelfTest();
 
+/** True while runAppSelfTest() runs. Window::step() then ignores the real mouse and keyboard, which would
+otherwise leak into the test's scripted input (the test window is on the user's screen).
+*/
+extern bool selfTestRunning;
+
 
 } // namespace rack3d
 } // namespace rack
