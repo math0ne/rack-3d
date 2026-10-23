@@ -14,6 +14,7 @@
 #include <rack3d/PlacementRenderer.hpp>
 #include <rack3d/TilesView.hpp>
 #include <render3d/gl.hpp>
+#include <rack3d/ModelRenderer.hpp>
 #include <app/RackScrollWidget.hpp>
 #include <stb_image_write.h>
 #include <plugin.hpp>
@@ -762,6 +763,56 @@ int runAppSelfTest() {
 		check(glGetError() == GL_NO_ERROR, "tiles input: no GL errors");
 	}
 	setTilesViewShown(false);
+
+	// 3D model render: the cube with live rack textures
+	resetRack();
+	{
+		// A Blank over the centre of the front face (face 0, middle row, HP 33-43; centre at 570 px)
+		addBlank(10, 33, 1);
+		PlacementRenderer textures;
+		textures.scale = 0.5f;
+		for (int i = 0; i < 20; i++) {
+			rack->step();
+			APP->window->fbCount() = 0;
+			textures.render(APP->window->vg, rack);
+		}
+		ModelRenderer model;
+		auto pixel = [&](int x, int y) {
+			uint8_t px[4] = {};
+			glBindFramebuffer(GL_FRAMEBUFFER, model.target.fbo);
+			glReadPixels(x, model.target.height - 1 - y, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, px);
+			glBindFramebuffer(GL_FRAMEBUFFER, 0);
+			return nvgRGBA(px[0], px[1], px[2], px[3]);
+		};
+		while (glGetError() != GL_NO_ERROR) {}
+		model.render(400, 300, rack->getLayout(), &textures);
+		check(model.target.texture != 0, "3d: the model renders into a texture");
+		check(pixel(200, 150).r > 0.6f, "3d: facing front, the centre shows the Blank on the front face");
+		check(pixel(5, 5).r < 0.15f, "3d: the corner shows the background");
+
+		// Turn the right face (+x) toward the camera
+		model.rotation = render3d::Quat::fromAxisAngle(render3d::Vec3(0, 1, 0), -M_PI / 2);
+		model.render(400, 300, rack->getLayout(), &textures);
+		NVGcolor right = pixel(200, 150);
+		check(right.r < 0.4f && right.a == 1.f, "3d: turned 90 degrees, the centre shows the right face's empty rails");
+
+		// Three-quarter view for a visual check
+		model.rotation = render3d::Quat::fromAxisAngle(render3d::Vec3(1, 0, 0), 0.45f) * render3d::Quat::fromAxisAngle(render3d::Vec3(0, 1, 0), -0.6f);
+		model.render(800, 600, rack->getLayout(), &textures);
+		check(glGetError() == GL_NO_ERROR, "3d: no GL errors");
+		{
+			int w = model.target.width, h = model.target.height;
+			std::vector<uint8_t> pixels(w * h * 4), flipped(w * h * 4);
+			glBindFramebuffer(GL_FRAMEBUFFER, model.target.fbo);
+			glReadPixels(0, 0, w, h, GL_RGBA, GL_UNSIGNED_BYTE, pixels.data());
+			glBindFramebuffer(GL_FRAMEBUFFER, 0);
+			for (int y = 0; y < h; y++)
+				std::memcpy(&flipped[y * w * 4], &pixels[(h - 1 - y) * w * 4], w * 4);
+			stbi_write_png(asset::user("model.png").c_str(), w, h, 4, flipped.data(), w * 4);
+		}
+		model.destroy();
+		textures.clear();
+	}
 
 	// render3d GL helpers
 	{
