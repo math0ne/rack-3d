@@ -844,6 +844,87 @@ int runAppSelfTest() {
 		check(!isTilesViewShown() && !isModelViewShown() && APP->scene->rackScroll->isVisible(), "3d view: hiding both brings back the 2D rack");
 	}
 
+	// 3D view camera: picking, snapping, drag-spin with inertia, zoom, double-click to face a rack
+	setModelViewShown(true);
+	for (int i = 0; i < 5; i++)
+		APP->window->step();
+	if (ModelView* view = getModelView()) {
+		using render3d::Quat;
+		using render3d::Vec3;
+		view->renderer.rotation = Quat();
+		view->renderer.distance = 6;
+		view->angularVelocity = Vec3();
+		math::Vec center = view->box.size.div(2);
+		math::Vec local;
+		check(view->pickPlacement(center, &local) == 0 && local.minus(math::Vec(570, 570)).norm() < 3, "camera: picking the centre hits the front rack, at its centre");
+		check(view->pickPlacement(math::Vec(5, 5)) == -1, "camera: picking a corner hits nothing");
+		view->renderer.rotation = Quat::fromAxisAngle(Vec3(0, 1, 0), -M_PI / 2);
+		check(view->pickPlacement(center) == 1, "camera: turned 90 degrees, the centre hits the right rack");
+		view->renderer.rotation = Quat::fromAxisAngle(Vec3(1, 0, 0), M_PI / 2);
+		check(view->pickPlacement(center) == 4, "camera: tipped forward, the centre hits the top rack");
+
+		// Snap from an arbitrary orientation
+		view->renderer.rotation = Quat::fromAxisAngle(Vec3(1, 2, 3), 1.f);
+		view->snapToPlacement(4);
+		for (int i = 0; i < 120 && view->isSnapping(); i++)
+			APP->window->step();
+		const Surface& top = APP->scene->rack->getLayout()->getPlacement(4)->surface;
+		Quat r = view->renderer.rotation;
+		check(!view->isSnapping() && r.rotate(top.normal()).isNear(Vec3(0, 0, 1), 1e-3f) && r.rotate(-top.down).isNear(Vec3(0, 1, 0), 1e-3f), "camera: snapping turns a rack to face the camera, upright");
+
+		// Drag to spin, then let go while moving
+		view->renderer.rotation = Quat();
+		math::Vec screen = view->box.pos.plus(center);
+		APP->event->handleHover(screen, math::Vec());
+		APP->event->handleButton(screen, GLFW_MOUSE_BUTTON_LEFT, GLFW_PRESS, 0);
+		for (int i = 1; i <= 10; i++) {
+			APP->event->handleHover(screen.plus(math::Vec(10 * i, 0)), math::Vec(10, 0));
+			APP->window->step();
+		}
+		APP->event->handleButton(screen.plus(math::Vec(100, 0)), GLFW_MOUSE_BUTTON_LEFT, GLFW_RELEASE, 0);
+		Quat afterDrag = view->renderer.rotation;
+		check(afterDrag.angleTo(Quat()) > 0.7f, "camera: dragging 100 px spins the model");
+		check(view->angularVelocity.norm() > 0.1f, "camera: letting go while moving keeps it spinning");
+		float speed = view->angularVelocity.norm();
+		for (int i = 0; i < 20; i++)
+			APP->window->step();
+		check(view->renderer.rotation.angleTo(afterDrag) > 0.01f && view->angularVelocity.norm() < speed, "camera: ...and it slows down");
+
+		// Zoom
+		float d = view->renderer.distance;
+		APP->event->handleScroll(screen, math::Vec(0, 100));
+		check(view->renderer.distance < d, "camera: scrolling up zooms in");
+		view->renderer.distance = 6;
+
+		// Double-click a rack to face it: from a three-quarter view, find a point on the right rack and double-click it
+		view->angularVelocity = Vec3();
+		view->renderer.rotation = Quat::fromAxisAngle(Vec3(0, 1, 0), -0.6f);
+		math::Vec onRight(-1, -1);
+		for (float x = center.x; x < view->box.size.x; x += 4) {
+			if (view->pickPlacement(math::Vec(x, center.y)) == 1) {
+				onRight = math::Vec(x + 20, center.y);
+				break;
+			}
+		}
+		if (onRight.x >= 0 && view->pickPlacement(onRight) == 1) {
+			math::Vec p = view->box.pos.plus(onRight);
+			APP->event->handleHover(p, math::Vec());
+			for (int i = 0; i < 2; i++) {
+				APP->event->handleButton(p, GLFW_MOUSE_BUTTON_LEFT, GLFW_PRESS, 0);
+				APP->event->handleButton(p, GLFW_MOUSE_BUTTON_LEFT, GLFW_RELEASE, 0);
+			}
+			for (int i = 0; i < 120 && view->isSnapping(); i++)
+				APP->window->step();
+			const Surface& right = APP->scene->rack->getLayout()->getPlacement(1)->surface;
+			check(view->renderer.rotation.rotate(right.normal()).isNear(Vec3(0, 0, 1), 1e-3f), "camera: double-clicking a rack turns it to face you");
+		}
+		else {
+			check(false, "camera: found a point on the right rack to double-click");
+		}
+		view->renderer.rotation = Quat();
+	}
+	setModelViewShown(false);
+
 	// render3d GL helpers
 	{
 		while (glGetError() != GL_NO_ERROR) {}
