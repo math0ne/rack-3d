@@ -13,8 +13,8 @@ RACK3D_TOOL=dump RACK3D_TOOL_PLUGINS=Fundamental,AudibleInstruments RACK3D_TOOL_
 	unit, switch labels), inputs and outputs (id, name), and default saved "data". For writing patch files by script.
 
 RACK3D_TOOL=preview RACK3D_TOOL_PATCH=patch.vcv RACK3D_TOOL_OUT=preview
-	Loads the patch, checks every module and cable came through, and saves 3D-view screenshots from four angles
-	(preview-1.png ... preview-4.png).
+	Loads the patch, checks every module and cable came through, logs each module's output peak, and saves 3D-view
+	screenshots from four angles (preview-1.png ... preview-4.png) and one zoomed out (preview-5.png).
 
 RACK3D_TOOL=devices
 	Logs every audio driver and its devices (id, name, channels; * marks the default), for naming a device in a patch.

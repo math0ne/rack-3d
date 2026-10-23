@@ -832,6 +832,14 @@ int runAppSelfTest() {
 		model.rotation = render3d::Quat::fromAxisAngle(render3d::Vec3(1, 0, 0), 0.45f) * render3d::Quat::fromAxisAngle(render3d::Vec3(0, 1, 0), -0.6f);
 		model.render(800, 600, rack->getLayout(), &textures);
 		check(glGetError() == GL_NO_ERROR, "3d: no GL errors");
+
+		// The concrete plaza, sky, shadows and fog around the model
+		model.environment = true;
+		model.render(400, 300, rack->getLayout(), &textures);
+		check(glGetError() == GL_NO_ERROR, "3d environment: renders with no GL errors");
+		NVGcolor corner = pixel(5, 5);
+		check(corner.r > 0.15f && corner.a == 1.f, "3d environment: the corner shows the scene, not the empty background");
+		model.environment = false;
 		{
 			int w = model.target.width, h = model.target.height;
 			std::vector<uint8_t> pixels(w * h * 4), flipped(w * h * 4);

@@ -136,6 +136,11 @@ void appendViewMenu(ui::Menu* menu) {
 	menu->addChild(createSubmenuItem("Cable physics", "", [](ui::Menu* menu) {
 		appendCableMenu(menu);
 	}));
+	menu->addChild(createSubmenuItem("Scene", "", [](ui::Menu* menu) {
+		menu->addChild(createBoolPtrMenuItem("Concrete plaza, sun and fog", "", &settings::environment));
+		menu->addChild(createSlider(&settings::fog, "Fog", 0.f, 3.f, 1.f, 2));
+		menu->addChild(createSlider(&settings::cableGlow, "Cable glow", 0.f, 1.f, 0.35f, 2));
+	}));
 }
 
 

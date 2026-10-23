@@ -124,6 +124,18 @@ Mat4 Mat4::perspective(float fovY, float aspect, float near, float far) {
 }
 
 
+Mat4 Mat4::ortho(float left, float right, float bottom, float top, float near, float far) {
+	Mat4 r;
+	r.m[0] = 2 / (right - left);
+	r.m[5] = 2 / (top - bottom);
+	r.m[10] = -2 / (far - near);
+	r.m[12] = -(right + left) / (right - left);
+	r.m[13] = -(top + bottom) / (top - bottom);
+	r.m[14] = -(far + near) / (far - near);
+	return r;
+}
+
+
 Mat4 Mat4::lookAt(Vec3 eye, Vec3 center, Vec3 up) {
 	Vec3 f = (center - eye).normalize();
 	Vec3 s = f.cross(up).normalize();
@@ -262,6 +274,11 @@ int mathSelfTest() {
 		}
 	};
 	const float PI = M_PI;
+
+	// Orthographic: the box's corners land on the clip cube's
+	Mat4 o = Mat4::ortho(-2, 4, -1, 3, 1, 9);
+	check(o.transformPoint(Vec3(-2, -1, -1)).isNear(Vec3(-1, -1, -1)), "ortho maps the near bottom left corner to (-1, -1, -1)");
+	check(o.transformPoint(Vec3(4, 3, -9)).isNear(Vec3(1, 1, 1)), "ortho maps the far top right corner to (1, 1, 1)");
 
 	// Quaternions
 	Quat qz = Quat::fromAxisAngle(Vec3(0, 0, 1), PI / 2);

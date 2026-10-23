@@ -11,6 +11,9 @@ namespace settings {
 bool placementsEnabled = false;
 RopeParams cableParams = defaultCableParams();
 float spinDamping = DEFAULT_SPIN_DAMPING;
+bool environment = true;
+float fog = 1.f;
+float cableGlow = 0.35f;
 
 
 RopeParams defaultCableParams() {
@@ -47,6 +50,9 @@ json_t* toJson() {
 	json_object_set_new(cablesJ, "radius", json_real(p.radius));
 	json_object_set_new(rootJ, "cables", cablesJ);
 	json_object_set_new(rootJ, "spinDamping", json_real(spinDamping));
+	json_object_set_new(rootJ, "environment", json_boolean(environment));
+	json_object_set_new(rootJ, "fog", json_real(fog));
+	json_object_set_new(rootJ, "cableGlow", json_real(cableGlow));
 	return rootJ;
 }
 
@@ -91,6 +97,16 @@ void fromJson(json_t* rootJ) {
 	json_t* spinDampingJ = json_object_get(rootJ, "spinDamping");
 	if (spinDampingJ)
 		spinDamping = json_number_value(spinDampingJ);
+
+	json_t* environmentJ = json_object_get(rootJ, "environment");
+	if (environmentJ)
+		environment = json_boolean_value(environmentJ);
+	json_t* fogJ = json_object_get(rootJ, "fog");
+	if (fogJ)
+		fog = std::max(0.f, std::min((float) json_number_value(fogJ), 3.f));
+	json_t* cableGlowJ = json_object_get(rootJ, "cableGlow");
+	if (cableGlowJ)
+		cableGlow = std::max(0.f, std::min((float) json_number_value(cableGlowJ), 1.f));
 }
 
 

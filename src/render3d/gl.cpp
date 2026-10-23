@@ -172,5 +172,57 @@ void RenderTarget::destroy() {
 }
 
 
+bool DepthTarget::resize(int size) {
+	if (size == this->size && fbo)
+		return true;
+	destroy();
+	if (size <= 0)
+		return false;
+	this->size = size;
+	glGenTextures(1, &texture);
+	glBindTexture(GL_TEXTURE_2D, texture);
+	glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT32F, size, size, 0, GL_DEPTH_COMPONENT, GL_FLOAT, NULL);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_BORDER);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_BORDER);
+	const float border[4] = {1, 1, 1, 1};
+	glTexParameterfv(GL_TEXTURE_2D, GL_TEXTURE_BORDER_COLOR, border);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_COMPARE_MODE, GL_COMPARE_REF_TO_TEXTURE);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_COMPARE_FUNC, GL_LEQUAL);
+	glBindTexture(GL_TEXTURE_2D, 0);
+	glGenFramebuffers(1, &fbo);
+	glBindFramebuffer(GL_FRAMEBUFFER, fbo);
+	glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, texture, 0);
+	glDrawBuffer(GL_NONE);
+	glReadBuffer(GL_NONE);
+	bool ok = glCheckFramebufferStatus(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE;
+	glBindFramebuffer(GL_FRAMEBUFFER, 0);
+	if (!ok) {
+		WARN("render3d: could not create %dx%d depth target", size, size);
+		destroy();
+		return false;
+	}
+	return true;
+}
+
+
+void DepthTarget::bind() {
+	glBindFramebuffer(GL_FRAMEBUFFER, fbo);
+	glViewport(0, 0, size, size);
+	glClear(GL_DEPTH_BUFFER_BIT);
+}
+
+
+void DepthTarget::destroy() {
+	if (fbo)
+		glDeleteFramebuffers(1, &fbo);
+	if (texture)
+		glDeleteTextures(1, &texture);
+	fbo = texture = 0;
+	size = 0;
+}
+
+
 } // namespace render3d
 } // namespace rack

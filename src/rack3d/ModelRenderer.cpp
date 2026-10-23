@@ -2,6 +2,7 @@
 #include <rack3d/Layout.hpp>
 #include <rack3d/PlacementRenderer.hpp>
 #include <rack3d/CableScene.hpp>
+#include <rack3d/Environment.hpp>
 
 
 namespace rack {
@@ -19,32 +20,244 @@ layout(location = 1) in vec3 aNormal;
 layout(location = 2) in vec2 aUv;
 uniform mat4 uMvp;
 uniform mat4 uModel;
+// Pushes vertices out along their normals (the cable glow halo is the tube, inflated)
+uniform float uInflate;
 out vec3 vNormal;
 out vec2 vUv;
+out vec3 vWorld;
 void main() {
+	vec3 pos = aPos + aNormal * uInflate;
 	vNormal = mat3(uModel) * aNormal;
 	vUv = aUv;
+	vWorld = (uModel * vec4(pos, 1.0)).xyz;
+	gl_Position = uMvp * vec4(pos, 1.0);
+}
+)";
+
+
+/** Lighting is done in linear color and written back gamma encoded. Materials: 0 flat color, 1 rack texture,
+2 concrete (procedural, from world position), 3 sky, 4 glow halo (added on top, brightest where the tube faces you).
+*/
+static const char* FRAG_SRC = R"(#version 450 core
+in vec3 vNormal;
+in vec2 vUv;
+in vec3 vWorld;
+uniform sampler2D uTex;
+uniform int uMaterial;
+uniform vec3 uColor;
+uniform float uSpecular;
+// Light the surface gives off itself, as a fraction of its color
+uniform float uEmissive;
+uniform vec3 uCamPos;
+uniform bool uEnvironment;
+uniform vec3 uSunDir;
+uniform float uFog;
+uniform float uFloorY;
+uniform mat4 uLightNear;
+uniform mat4 uLightFar;
+uniform sampler2DShadow uShadowNear;
+uniform sampler2DShadow uShadowFar;
+uniform float uShadowTexel;
+uniform float uFogStart;
+out vec4 outColor;
+
+// Hazy late sun, a soft key from the camera side so panels stay readable, and sky / ground ambient
+const vec3 SUN_COLOR = vec3(1.0, 0.82, 0.6) * 2.1;
+const vec3 KEY_DIR = normalize(vec3(0.35, 0.45, 1.0));
+const vec3 KEY_COLOR = vec3(0.8, 0.86, 1.0) * 0.42;
+const vec3 SKY_AMBIENT = vec3(0.3, 0.35, 0.45);
+const vec3 GROUND_AMBIENT = vec3(0.11, 0.1, 0.09);
+
+vec3 toLinear(vec3 c) { return pow(max(c, 0.0), vec3(2.2)); }
+vec3 toGamma(vec3 c) { return pow(max(c, 0.0), vec3(1.0 / 2.2)); }
+
+float hash(vec3 p) {
+	p = fract(p * 0.3183099 + 0.1);
+	p *= 17.0;
+	return fract(p.x * p.y * p.z * (p.x + p.y + p.z));
+}
+
+float noise(vec3 x) {
+	vec3 i = floor(x);
+	vec3 f = fract(x);
+	f = f * f * (3.0 - 2.0 * f);
+	return mix(mix(mix(hash(i), hash(i + vec3(1, 0, 0)), f.x), mix(hash(i + vec3(0, 1, 0)), hash(i + vec3(1, 1, 0)), f.x), f.y),
+		mix(mix(hash(i + vec3(0, 0, 1)), hash(i + vec3(1, 0, 1)), f.x), mix(hash(i + vec3(0, 1, 1)), hash(i + vec3(1, 1, 1)), f.x), f.y), f.z);
+}
+
+float fbm(vec3 p) {
+	float v = 0.0, a = 0.5;
+	for (int i = 0; i < 4; i++) {
+		v += a * noise(p);
+		p *= 2.03;
+		a *= 0.5;
+	}
+	return v;
+}
+
+// Board-formed concrete: plank seams, form panel joints, tie holes, rain streaks, darker toward the ground
+vec3 concrete(vec3 p, vec3 n) {
+	vec3 an = abs(n);
+	float stain = fbm(p * vec3(0.35, 0.09, 0.35));
+	float grain = noise(p * 11.0);
+	float c = 0.2 + 0.12 * (stain - 0.5) + 0.04 * (grain - 0.5);
+	if (an.y < 0.5) {
+		// Wall coordinates: along the wall, up
+		vec2 uv = an.x > an.z ? p.zy : p.xy;
+		float board = abs(fract(uv.y / 0.22) - 0.5);
+		c -= 0.02 * smoothstep(0.42, 0.5, board);
+		vec2 panel = abs(fract(uv / vec2(2.4, 1.32)) - 0.5);
+		c -= 0.05 * max(smoothstep(0.488, 0.5, panel.x), smoothstep(0.48, 0.5, panel.y));
+		vec2 tie = (fract(uv / vec2(0.6, 0.66)) - 0.5) * vec2(0.6, 0.66);
+		c -= 0.12 * (1.0 - smoothstep(0.022, 0.034, length(tie)));
+		c *= mix(0.72, 1.0, clamp((p.y - uFloorY) / 2.0, 0.0, 1.0));
+	}
+	else {
+		// Paving slabs
+		vec2 panel = abs(fract(p.xz / 3.0) - 0.5);
+		c -= 0.04 * max(smoothstep(0.492, 0.5, panel.x), smoothstep(0.492, 0.5, panel.y));
+	}
+	return vec3(c) * vec3(1.0, 0.98, 0.94);
+}
+
+// The haze: horizon to zenith, warmer and brighter toward the sun
+vec3 skyColor(vec3 dir) {
+	float sun = max(dot(dir, uSunDir), 0.0);
+	vec3 horizon = vec3(0.24, 0.24, 0.25);
+	vec3 zenith = vec3(0.05, 0.07, 0.1);
+	vec3 c = mix(horizon, zenith, clamp(dir.y * 1.5, 0.0, 1.0));
+	c = mix(c, vec3(0.22, 0.21, 0.2), clamp(-dir.y * 3.0, 0.0, 1.0));
+	c += vec3(1.0, 0.72, 0.42) * (0.3 * pow(sun, 5.0) + 0.9 * pow(sun, 60.0));
+	return c;
+}
+
+float shadowIn(sampler2DShadow map, mat4 light, vec3 p, out bool inside) {
+	vec3 q = (light * vec4(p, 1.0)).xyz * 0.5 + 0.5;
+	inside = all(greaterThan(q, vec3(0.01))) && all(lessThan(q, vec3(0.99)));
+	if (!inside)
+		return 1.0;
+	float sum = 0.0;
+	for (int x = -1; x <= 1; x++)
+		for (int y = -1; y <= 1; y++)
+			sum += texture(map, vec3(q.xy + vec2(x, y) * uShadowTexel, q.z));
+	return sum / 9.0;
+}
+
+float sunShadow(vec3 p, vec3 n) {
+	if (!uEnvironment)
+		return 1.0;
+	bool inside;
+	float s = shadowIn(uShadowNear, uLightNear, p + n * 0.01, inside);
+	if (inside)
+		return s;
+	return shadowIn(uShadowFar, uLightFar, p + n * 0.12, inside);
+}
+
+// Height fog: thick near the floor, thinning upward, starting behind the model so it stays crisp at any zoom
+float fogAmount(vec3 p) {
+	vec3 d = p - uCamPos;
+	float dist = length(d);
+	float t = max(dist - uFogStart, 0.0);
+	float k = d.y / max(dist, 1e-4) * 0.16;
+	float h0 = exp(-(uCamPos.y - uFloorY) * 0.16);
+	float integral = abs(k) < 1e-4 ? t * h0 : h0 * (1.0 - exp(-t * k)) / k;
+	return 1.0 - exp(-0.022 * uFog * integral);
+}
+
+// Light shafts: sunlit haze along the view ray, marched through the wide shadow map
+vec3 shafts(vec3 p) {
+	vec3 d = p - uCamPos;
+	float dist = min(length(d), 70.0);
+	vec3 dir = normalize(d);
+	const int STEPS = 24;
+	float stepLen = dist / float(STEPS);
+	float jitter = hash(vec3(gl_FragCoord.xy, 0.0));
+	float lit = 0.0;
+	for (int i = 0; i < STEPS; i++) {
+		vec3 q = uCamPos + dir * (float(i) + jitter) * stepLen;
+		vec3 s = (uLightFar * vec4(q, 1.0)).xyz * 0.5 + 0.5;
+		float sun = texture(uShadowFar, s);
+		lit += sun * exp(-max(q.y - uFloorY, 0.0) * 0.12) * stepLen;
+	}
+	// Mostly forward scattering: shafts show when looking toward the sun
+	float phase = 0.06 + 1.4 * pow(max(dot(dir, uSunDir), 0.0), 8.0);
+	return SUN_COLOR * vec3(1.0, 0.88, 0.72) * lit * phase * 0.003 * uFog;
+}
+
+void main() {
+	vec3 viewDir = normalize(vWorld - uCamPos);
+	if (uMaterial == 3) {
+		vec3 c = skyColor(viewDir);
+		if (uEnvironment)
+			c += shafts(vWorld);
+		outColor = vec4(toGamma(c), 1.0);
+		return;
+	}
+	if (uMaterial == 4) {
+		float facing = abs(dot(normalize(vNormal), viewDir));
+		float glow = pow(facing, 2.0) * uEmissive;
+		outColor = vec4(toLinear(uColor) * glow, 0.0);
+		return;
+	}
+	vec3 base;
+	if (uMaterial == 1)
+		base = toLinear(texture(uTex, vUv).rgb);
+	else if (uMaterial == 2)
+		base = concrete(vWorld, normalize(vNormal));
+	else
+		base = toLinear(uColor);
+	vec3 n = normalize(vNormal);
+	// Light the side facing the camera, so thin parts drawn from both sides don't go black
+	if (dot(n, viewDir) > 0.0 && uMaterial != 2)
+		n = -n;
+	vec3 toCam = -viewDir;
+	float sunDiffuse = max(dot(n, uSunDir), 0.0) * sunShadow(vWorld, n);
+	float keyDiffuse = max(dot(n, KEY_DIR), 0.0);
+	vec3 ambient = mix(GROUND_AMBIENT, SKY_AMBIENT, n.y * 0.5 + 0.5);
+	vec3 c = base * (ambient + KEY_COLOR * keyDiffuse + SUN_COLOR * sunDiffuse);
+	// Blinn-Phong highlights for plastic and metal parts
+	if (uSpecular > 0.0) {
+		vec3 hk = normalize(KEY_DIR + toCam);
+		vec3 hs = normalize(uSunDir + toCam);
+		c += uSpecular * (KEY_COLOR * pow(max(dot(n, hk), 0.0), 40.0) + SUN_COLOR * sunDiffuse * pow(max(dot(n, hs), 0.0), 60.0));
+	}
+	c += base * uEmissive;
+	if (uEnvironment) {
+		c = mix(c, skyColor(viewDir), fogAmount(vWorld));
+		c += shafts(vWorld);
+	}
+	outColor = vec4(toGamma(c), 1.0);
+}
+)";
+
+
+static const char* SHADOW_VERT_SRC = R"(#version 450 core
+layout(location = 0) in vec3 aPos;
+uniform mat4 uMvp;
+void main() {
 	gl_Position = uMvp * vec4(aPos, 1.0);
 }
 )";
 
 
-static const char* FRAG_SRC = R"(#version 450 core
-in vec3 vNormal;
-in vec2 vUv;
-uniform sampler2D uTex;
-uniform bool uUseTex;
-uniform vec3 uColor;
-out vec4 outColor;
+static const char* SHADOW_FRAG_SRC = R"(#version 450 core
 void main() {
-	vec3 base = uUseTex ? texture(uTex, vUv).rgb : uColor;
-	vec3 n = normalize(vNormal);
-	// Key light from the upper left front, plus ambient, so faces facing the camera read clearly
-	vec3 light = normalize(vec3(-0.35, 0.55, 1.0));
-	float diffuse = max(dot(n, light), 0.0);
-	outColor = vec4(base * (0.4 + 0.6 * diffuse), 1.0);
 }
 )";
+
+
+/** Shadow map resolution, and the half-sizes of the two cascades' light-space boxes. */
+static const int SHADOW_SIZE = 2048;
+static const float SHADOW_NEAR_HALF = 5.f;
+static const float SHADOW_FAR_HALF = 75.f;
+/** Materials, as in FRAG_SRC. */
+enum {
+	MATERIAL_COLOR,
+	MATERIAL_TEXTURE,
+	MATERIAL_CONCRETE,
+	MATERIAL_SKY,
+	MATERIAL_GLOW,
+};
 
 
 ModelRenderer::~ModelRenderer() {
@@ -142,7 +355,8 @@ void ModelRenderer::updateMeshes(Layout* layout) {
 
 Mat4 ModelRenderer::getViewProjection(int width, int height) const {
 	float aspect = height > 0 ? (float) width / height : 1.f;
-	Mat4 proj = Mat4::perspective(fovY, aspect, 0.1f, 100.f);
+	// Far enough for the sky box's corners
+	Mat4 proj = Mat4::perspective(fovY, aspect, 0.1f, 400.f);
 	Mat4 view = Mat4::lookAt(Vec3(0, 0, distance), Vec3(0, 0, 0), Vec3(0, 1, 0));
 	return proj * view;
 }
@@ -311,10 +525,8 @@ void ModelRenderer::drawKnobs(const std::vector<KnobDraw>& knobs, const Mat4& vi
 		buildKnobMeshes(knobMeshes, knobCapMesh);
 		buildUnitBox(boxMesh);
 	}
-	GLint mvpLoc = glGetUniformLocation(program, "uMvp");
-	GLint modelLoc = glGetUniformLocation(program, "uModel");
-	GLint colorLoc = glGetUniformLocation(program, "uColor");
-	glUniform1i(glGetUniformLocation(program, "uUseTex"), 0);
+	GLint mvpLoc = glGetUniformLocation(active, "uMvp");
+	GLint modelLoc = glGetUniformLocation(active, "uModel");
 	glDisable(GL_CULL_FACE);
 	Mat4 modelRotation = Mat4::rotate(rotation);
 
@@ -322,7 +534,8 @@ void ModelRenderer::drawKnobs(const std::vector<KnobDraw>& knobs, const Mat4& vi
 		Mat4 mvp = viewProj * model;
 		glUniformMatrix4fv(mvpLoc, 1, GL_FALSE, mvp.m);
 		glUniformMatrix4fv(modelLoc, 1, GL_FALSE, model.m);
-		glUniform3f(colorLoc, color.x, color.y, color.z);
+		// Glossy plastic
+		setMaterial(MATERIAL_COLOR, color, 0.45f);
 		mesh.draw();
 	};
 
@@ -384,17 +597,15 @@ void ModelRenderer::drawParts(const std::vector<PartDraw>& parts, const Mat4& vi
 		if (!boxMesh.vao)
 			buildUnitBox(boxMesh);
 	}
-	GLint mvpLoc = glGetUniformLocation(program, "uMvp");
-	GLint modelLoc = glGetUniformLocation(program, "uModel");
-	GLint colorLoc = glGetUniformLocation(program, "uColor");
-	glUniform1i(glGetUniformLocation(program, "uUseTex"), 0);
+	GLint mvpLoc = glGetUniformLocation(active, "uMvp");
+	GLint modelLoc = glGetUniformLocation(active, "uModel");
 	glDisable(GL_CULL_FACE);
 	Mat4 modelRotation = Mat4::rotate(rotation);
 	auto draw = [&](Mesh& mesh, const Mat4& model, Vec3 color) {
 		Mat4 mvp = viewProj * model;
 		glUniformMatrix4fv(mvpLoc, 1, GL_FALSE, mvp.m);
 		glUniformMatrix4fv(modelLoc, 1, GL_FALSE, model.m);
-		glUniform3f(colorLoc, color.x, color.y, color.z);
+		setMaterial(MATERIAL_COLOR, color, 0.6f);
 		mesh.draw();
 	};
 	const Vec3 dark(0.1f, 0.1f, 0.11f), metal(0.72f, 0.73f, 0.75f), cap(0.82f, 0.82f, 0.84f);
@@ -439,16 +650,27 @@ void ModelRenderer::drawParts(const std::vector<PartDraw>& parts, const Mat4& vi
 }
 
 
-void ModelRenderer::drawCables(const CableScene* cables, const Mat4& viewProj) {
-	GLint mvpLoc = glGetUniformLocation(program, "uMvp");
-	GLint modelLoc = glGetUniformLocation(program, "uModel");
-	GLint colorLoc = glGetUniformLocation(program, "uColor");
-	glUniform1i(glGetUniformLocation(program, "uUseTex"), 0);
-	// Tubes and plugs are drawn from both sides
-	glDisable(GL_CULL_FACE);
-
+void ModelRenderer::updateCableMeshes(const CableScene* cables) {
 	if (cableMeshes.size() < cables->entries.size())
 		cableMeshes.resize(cables->entries.size());
+	size_t i = 0;
+	for (const auto& pair : cables->entries) {
+		const Rope& rope = pair.second.rope;
+		if (rope.count() < 4)
+			continue;
+		// Tube from the back of one plug to the back of the other
+		std::vector<Vec3> points(rope.P.begin() + 1, rope.P.end() - 1);
+		buildTube(cableMeshes[i], points, cables->params.radius);
+		i++;
+	}
+}
+
+
+void ModelRenderer::drawCables(const CableScene* cables, const Mat4& viewProj) {
+	GLint mvpLoc = glGetUniformLocation(active, "uMvp");
+	GLint modelLoc = glGetUniformLocation(active, "uModel");
+	// Tubes and plugs are drawn from both sides
+	glDisable(GL_CULL_FACE);
 	if (!plugMesh.vao)
 		buildCylinder(plugMesh);
 	const RopeParams& params = cables->params;
@@ -459,18 +681,15 @@ void ModelRenderer::drawCables(const CableScene* cables, const Mat4& viewProj) {
 		const Rope& rope = e.rope;
 		if (rope.count() < 4)
 			continue;
-		// Tube from the back of one plug to the back of the other
-		std::vector<Vec3> points(rope.P.begin() + 1, rope.P.end() - 1);
-		buildTube(cableMeshes[i], points, params.radius);
 		Mat4 identity;
 		glUniformMatrix4fv(mvpLoc, 1, GL_FALSE, viewProj.m);
 		glUniformMatrix4fv(modelLoc, 1, GL_FALSE, identity.m);
-		glUniform3f(colorLoc, e.color.r, e.color.g, e.color.b);
+		setMaterial(MATERIAL_COLOR, Vec3(e.color.r, e.color.g, e.color.b), 0.35f, 0.45f * cableGlow);
 		cableMeshes[i].draw();
 		i++;
 
 		// Plugs: dark cylinders from the tip (in the jack) to the back
-		glUniform3f(colorLoc, 0.12f, 0.12f, 0.13f);
+		setMaterial(MATERIAL_COLOR, Vec3(0.12f, 0.12f, 0.13f), 0.5f);
 		int n = rope.count();
 		for (int end = 0; end < 2; end++) {
 			Vec3 tip = rope.P[end == 0 ? 0 : n - 1];
@@ -490,6 +709,92 @@ void ModelRenderer::drawCables(const CableScene* cables, const Mat4& viewProj) {
 }
 
 
+void ModelRenderer::setMaterial(int material, Vec3 color, float specular, float emissive) {
+	glUniform1i(glGetUniformLocation(active, "uMaterial"), material);
+	glUniform3f(glGetUniformLocation(active, "uColor"), color.x, color.y, color.z);
+	glUniform1f(glGetUniformLocation(active, "uSpecular"), specular);
+	glUniform1f(glGetUniformLocation(active, "uEmissive"), emissive);
+	glUniform1f(glGetUniformLocation(active, "uInflate"), 0.f);
+}
+
+
+void ModelRenderer::drawCableGlow(const CableScene* cables, const Mat4& viewProj) {
+	if (cableGlow <= 0.f)
+		return;
+	// Additive halos over the scene: depth tested so the model hides them, but not written
+	glEnable(GL_BLEND);
+	glBlendFuncSeparate(GL_ONE, GL_ONE, GL_ZERO, GL_ONE);
+	glDepthMask(GL_FALSE);
+	glDisable(GL_CULL_FACE);
+	Mat4 identity;
+	glUniformMatrix4fv(glGetUniformLocation(active, "uMvp"), 1, GL_FALSE, viewProj.m);
+	glUniformMatrix4fv(glGetUniformLocation(active, "uModel"), 1, GL_FALSE, identity.m);
+	size_t i = 0;
+	for (const auto& pair : cables->entries) {
+		const CableScene::Entry& e = pair.second;
+		if (e.rope.count() < 4)
+			continue;
+		setMaterial(MATERIAL_GLOW, Vec3(e.color.r, e.color.g, e.color.b), 0.f, 0.5f * cableGlow);
+		glUniform1f(glGetUniformLocation(active, "uInflate"), cables->params.radius * 2.2f);
+		cableMeshes[i].draw();
+		i++;
+	}
+	glDepthMask(GL_TRUE);
+	glDisable(GL_BLEND);
+}
+
+
+void ModelRenderer::drawScene(const Mat4& viewProj, bool shadowPass, PlacementRenderer* textures, const CableScene* cables, const std::vector<KnobDraw>* knobs, const std::vector<PartDraw>* parts) {
+	GLint mvpLoc = glGetUniformLocation(active, "uMvp");
+	GLint modelLoc = glGetUniformLocation(active, "uModel");
+	Mat4 identity;
+
+	// Structures
+	if (environment) {
+		glUniformMatrix4fv(mvpLoc, 1, GL_FALSE, viewProj.m);
+		glUniformMatrix4fv(modelLoc, 1, GL_FALSE, identity.m);
+		setMaterial(MATERIAL_CONCRETE, Vec3(), 0.f);
+		glEnable(GL_CULL_FACE);
+		concrete.draw();
+	}
+
+	// Body
+	Mat4 model = Mat4::rotate(rotation);
+	Mat4 mvp = viewProj * model;
+	glUniformMatrix4fv(mvpLoc, 1, GL_FALSE, mvp.m);
+	glUniformMatrix4fv(modelLoc, 1, GL_FALSE, model.m);
+	setMaterial(MATERIAL_COLOR, Vec3(0.05f, 0.05f, 0.055f), 0.1f);
+	glEnable(GL_CULL_FACE);
+	body.draw();
+
+	// Faces, pulled toward the camera so they win against the body they lie on. The body casts their shadows.
+	if (!shadowPass) {
+		glEnable(GL_POLYGON_OFFSET_FILL);
+		glPolygonOffset(-1.f, -1.f);
+		glActiveTexture(GL_TEXTURE0);
+		for (Face& f : faces) {
+			const PlacementRenderer::Target* t = textures ? textures->getTarget(f.placementId) : NULL;
+			if (t) {
+				glBindTexture(GL_TEXTURE_2D, t->fb->texture);
+				setMaterial(MATERIAL_TEXTURE, Vec3(), 0.04f);
+			}
+			else {
+				setMaterial(MATERIAL_COLOR, Vec3(0.2f, 0.2f, 0.2f), 0.04f);
+			}
+			f.mesh.draw();
+		}
+		glDisable(GL_POLYGON_OFFSET_FILL);
+	}
+
+	if (knobs)
+		drawKnobs(*knobs, viewProj);
+	if (parts)
+		drawParts(*parts, viewProj);
+	if (cables)
+		drawCables(cables, viewProj);
+}
+
+
 void ModelRenderer::render(int width, int height, Layout* layout, PlacementRenderer* textures, const CableScene* cables, const std::vector<KnobDraw>* knobs, const std::vector<PartDraw>* parts) {
 	if (!program) {
 		program = render3d::compileProgram(VERT_SRC, FRAG_SRC);
@@ -499,59 +804,101 @@ void ModelRenderer::render(int width, int height, Layout* layout, PlacementRende
 	if (!target.resize(width, height, samples))
 		return;
 	updateMeshes(layout);
+	if (cables)
+		updateCableMeshes(cables);
+
+	glEnable(GL_DEPTH_TEST);
+	glDepthFunc(GL_LESS);
+	glFrontFace(GL_CCW);
+	glCullFace(GL_BACK);
+	glDisable(GL_BLEND);
+
+	bool shadows = false;
+	if (environment) {
+		if (!concrete.vao) {
+			std::vector<Mesh::Vertex> vertices;
+			std::vector<uint32_t> indices;
+			environment::buildConcrete(vertices, indices);
+			concrete.upload(vertices, indices);
+			vertices.clear();
+			indices.clear();
+			float h = environment::SKY_HALF;
+			environment::appendBox(vertices, indices, Vec3(-h, -h, -h), Vec3(h, h, h));
+			sky.upload(vertices, indices);
+		}
+		if (!shadowProgram)
+			shadowProgram = render3d::compileProgram(SHADOW_VERT_SRC, SHADOW_FRAG_SRC);
+		shadows = shadowProgram && shadowNear.resize(SHADOW_SIZE) && shadowFar.resize(SHADOW_SIZE);
+	}
+
+	// Sun shadow maps: orthographic views along the sun, a tight one around the model and a wide one over the plaza
+	if (shadows) {
+		auto lightMatrix = [&](float half) {
+			Mat4 view = Mat4::lookAt(sunDir * (half * 1.5f), Vec3(), Vec3(0, 1, 0));
+			return Mat4::ortho(-half, half, -half, half, 0.f, half * 3.f) * view;
+		};
+		lightNear = lightMatrix(SHADOW_NEAR_HALF);
+		lightFar = lightMatrix(SHADOW_FAR_HALF);
+		glUseProgram(shadowProgram);
+		active = shadowProgram;
+		// Slope-scaled bias against acne
+		glEnable(GL_POLYGON_OFFSET_FILL);
+		glPolygonOffset(2.f, 4.f);
+		shadowNear.bind();
+		drawScene(lightNear, true, textures, cables, knobs, parts);
+		shadowFar.bind();
+		drawScene(lightFar, true, textures, cables, knobs, parts);
+		glDisable(GL_POLYGON_OFFSET_FILL);
+	}
 
 	target.bind();
 	// Premultiplied clear color
 	float a = background[3];
 	glClearColor(background[0] * a, background[1] * a, background[2] * a, a);
 	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-	glEnable(GL_DEPTH_TEST);
-	glDepthFunc(GL_LESS);
-	glEnable(GL_CULL_FACE);
-	glCullFace(GL_BACK);
-	glFrontFace(GL_CCW);
-	glDisable(GL_BLEND);
 
 	glUseProgram(program);
-	Mat4 mvp = getMVP(width, height);
-	Mat4 model = Mat4::rotate(rotation);
-	glUniformMatrix4fv(glGetUniformLocation(program, "uMvp"), 1, GL_FALSE, mvp.m);
-	glUniformMatrix4fv(glGetUniformLocation(program, "uModel"), 1, GL_FALSE, model.m);
+	active = program;
+	Mat4 viewProj = getViewProjection(width, height);
 	glUniform1i(glGetUniformLocation(program, "uTex"), 0);
-	GLint useTexLoc = glGetUniformLocation(program, "uUseTex");
-	GLint colorLoc = glGetUniformLocation(program, "uColor");
-
-	// Body
-	glUniform1i(useTexLoc, 0);
-	glUniform3f(colorLoc, 0.05f, 0.05f, 0.055f);
-	body.draw();
-
-	// Faces, pulled toward the camera so they win against the body they lie on
-	glEnable(GL_POLYGON_OFFSET_FILL);
-	glPolygonOffset(-1.f, -1.f);
+	glUniform1i(glGetUniformLocation(program, "uShadowNear"), 1);
+	glUniform1i(glGetUniformLocation(program, "uShadowFar"), 2);
+	glUniform1i(glGetUniformLocation(program, "uEnvironment"), shadows);
+	glUniform3f(glGetUniformLocation(program, "uCamPos"), 0, 0, distance);
+	glUniform3f(glGetUniformLocation(program, "uSunDir"), sunDir.x, sunDir.y, sunDir.z);
+	glUniform1f(glGetUniformLocation(program, "uFog"), fog);
+	glUniform1f(glGetUniformLocation(program, "uFloorY"), environment::FLOOR_Y);
+	glUniform1f(glGetUniformLocation(program, "uShadowTexel"), 1.f / SHADOW_SIZE);
+	glUniform1f(glGetUniformLocation(program, "uFogStart"), distance + 2.f);
+	glUniformMatrix4fv(glGetUniformLocation(program, "uLightNear"), 1, GL_FALSE, lightNear.m);
+	glUniformMatrix4fv(glGetUniformLocation(program, "uLightFar"), 1, GL_FALSE, lightFar.m);
+	// Shadow samplers must point at depth textures with comparison even when unused
+	glActiveTexture(GL_TEXTURE1);
+	glBindTexture(GL_TEXTURE_2D, shadows ? shadowNear.texture : 0);
+	glActiveTexture(GL_TEXTURE2);
+	glBindTexture(GL_TEXTURE_2D, shadows ? shadowFar.texture : 0);
 	glActiveTexture(GL_TEXTURE0);
-	for (Face& f : faces) {
-		const PlacementRenderer::Target* t = textures ? textures->getTarget(f.placementId) : NULL;
-		if (t) {
-			glBindTexture(GL_TEXTURE_2D, t->fb->texture);
-			glUniform1i(useTexLoc, 1);
-		}
-		else {
-			glUniform1i(useTexLoc, 0);
-			glUniform3f(colorLoc, 0.2f, 0.2f, 0.2f);
-		}
-		f.mesh.draw();
-	}
-	glDisable(GL_POLYGON_OFFSET_FILL);
 
-	if (knobs)
-		drawKnobs(*knobs, getViewProjection(width, height));
-	if (parts)
-		drawParts(*parts, getViewProjection(width, height));
+	drawScene(viewProj, false, textures, cables, knobs, parts);
+
+	// Sky last, behind everything; seen from inside, so no culling
+	if (environment) {
+		Mat4 identity;
+		glUniformMatrix4fv(glGetUniformLocation(program, "uMvp"), 1, GL_FALSE, viewProj.m);
+		glUniformMatrix4fv(glGetUniformLocation(program, "uModel"), 1, GL_FALSE, identity.m);
+		setMaterial(MATERIAL_SKY, Vec3(), 0.f);
+		glDisable(GL_CULL_FACE);
+		sky.draw();
+	}
 	if (cables)
-		drawCables(cables, getViewProjection(width, height));
+		drawCableGlow(cables, viewProj);
 
 	// Leave state as NanoVG expects it
+	glActiveTexture(GL_TEXTURE1);
+	glBindTexture(GL_TEXTURE_2D, 0);
+	glActiveTexture(GL_TEXTURE2);
+	glBindTexture(GL_TEXTURE_2D, 0);
+	glActiveTexture(GL_TEXTURE0);
 	glBindTexture(GL_TEXTURE_2D, 0);
 	glUseProgram(0);
 	glDisable(GL_DEPTH_TEST);
@@ -578,9 +925,17 @@ void ModelRenderer::destroy() {
 	faces.clear();
 	meshKey.clear();
 	body.destroy();
+	concrete.destroy();
+	sky.destroy();
+	shadowNear.destroy();
+	shadowFar.destroy();
 	if (program)
 		glDeleteProgram(program);
 	program = 0;
+	if (shadowProgram)
+		glDeleteProgram(shadowProgram);
+	shadowProgram = 0;
+	active = 0;
 	target.destroy();
 }
 

@@ -59,5 +59,22 @@ struct RenderTarget {
 };
 
 
+/** Square depth-only render target whose depth texture is sampled with comparison (sampler2DShadow), for shadow maps.
+Bind(), draw, then bind the default framebuffer and sample `texture`.
+*/
+struct DepthTarget {
+	int size = 0;
+	GLuint fbo = 0;
+	/** DEPTH_COMPONENT32F with linear comparison filtering (2x2 PCF in hardware); outside the map reads as lit. */
+	GLuint texture = 0;
+
+	/** (Re)creates the target if the size changed. Returns false on failure. */
+	bool resize(int size);
+	/** Binds the framebuffer, sets the viewport and clears depth. */
+	void bind();
+	void destroy();
+};
+
+
 } // namespace render3d
 } // namespace rack

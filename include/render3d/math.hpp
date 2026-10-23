@@ -91,6 +91,8 @@ struct Mat4 {
 	}
 	/** OpenGL perspective projection. `fovY` in radians. */
 	static Mat4 perspective(float fovY, float aspect, float near, float far);
+	/** OpenGL orthographic projection of the view-space box [left, right] x [bottom, top] x [-near, -far]. */
+	static Mat4 ortho(float left, float right, float bottom, float top, float near, float far);
 	/** View matrix looking from `eye` at `center`. */
 	static Mat4 lookAt(Vec3 eye, Vec3 center, Vec3 up);
 	static Mat4 translate(Vec3 v);

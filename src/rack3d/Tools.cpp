@@ -186,14 +186,18 @@ static int previewPatch() {
 		Quat::fromAxisAngle(Vec3(1, 0, 0), -0.6f) * Quat::fromAxisAngle(Vec3(0, 1, 0), 0.8f),
 		Quat::fromAxisAngle(Vec3(1, 0, 0), 0.45f) * Quat::fromAxisAngle(Vec3(0, 1, 0), M_PI / 2 + 0.6f),
 	};
-	for (int i = 0; i < 4; i++) {
-		view->renderer.rotation = angles[i];
+	float distance = view->renderer.distance;
+	for (int i = 0; i < 5; i++) {
+		// The fifth shot steps back to show the scene around the model
+		view->renderer.rotation = angles[i % 4];
+		view->renderer.distance = i < 4 ? distance : ModelView::MAX_DISTANCE;
 		view->angularVelocity = Vec3();
 		// Let cables settle into the new orientation
 		for (int f = 0; f < 90; f++)
 			APP->window->step();
 		APP->window->screenshot(string::f("%s-%d.png", out.c_str(), i + 1));
 	}
+	view->renderer.distance = distance;
 	return failures == 0 ? 0 : 1;
 }
 

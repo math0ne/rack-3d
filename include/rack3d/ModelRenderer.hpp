@@ -94,9 +94,19 @@ struct ModelRenderer {
 	float distance = 6.f;
 	/** Vertical field of view, radians. */
 	float fovY = 35.f * M_PI / 180.f;
-	/** Background color (straight, not premultiplied). */
+	/** Background color (straight, not premultiplied), behind the model when there's no environment. */
 	float background[4] = {0.08f, 0.08f, 0.08f, 1.f};
 	int samples = 4;
+	/** Draw the concrete plaza, sky, fog, sun shadows and light shafts around the model. */
+	bool environment = false;
+	/** Fog and light shaft density; 1 is the default haze, 0 clear air. */
+	float fog = 1.f;
+	/** How much the cables light up and haze around themselves; 0 is plain cables. */
+	float cableGlow = 0.f;
+	/** Direction toward the sun (world space): low on the left and a little in front, so the model has a warm sunlit
+	side and a cool shaded one, and the structures cast long shadows across the plaza.
+	*/
+	render3d::Vec3 sunDir = render3d::Vec3(-0.75f, 0.48f, 0.35f).normalize();
 
 	render3d::RenderTarget target;
 
@@ -114,7 +124,21 @@ struct ModelRenderer {
 
 private:
 	GLuint program = 0;
+	/** Depth-only program for the shadow maps. */
+	GLuint shadowProgram = 0;
+	/** The program the draw helpers set uniforms on. */
+	GLuint active = 0;
 	render3d::Mesh body;
+	/** Concrete structures and the sky box, built once. */
+	render3d::Mesh concrete;
+	render3d::Mesh sky;
+	/** Sun shadow cascades: a tight one around the model for the cube, knobs and cables, and a wide one for the
+	structures. World to light clip space for each.
+	*/
+	render3d::DepthTarget shadowNear;
+	render3d::DepthTarget shadowFar;
+	render3d::Mat4 lightNear;
+	render3d::Mat4 lightFar;
 	struct Face {
 		int placementId;
 		render3d::Mesh mesh;
@@ -137,7 +161,13 @@ private:
 	render3d::Mesh leverMesh;
 
 	void updateMeshes(Layout* layout);
+	/** Draws everything but the sky with `viewProj`: model, faces (unless `shadowPass`), controls, cables, structures. */
+	void drawScene(const render3d::Mat4& viewProj, bool shadowPass, PlacementRenderer* textures, const CableScene* cables, const std::vector<KnobDraw>* knobs, const std::vector<PartDraw>* parts);
+	void setMaterial(int material, render3d::Vec3 color, float specular, float emissive = 0.f);
+	void updateCableMeshes(const CableScene* cables);
 	void drawCables(const CableScene* cables, const render3d::Mat4& viewProj);
+	/** Soft additive halos around the cables, after everything else. */
+	void drawCableGlow(const CableScene* cables, const render3d::Mat4& viewProj);
 	void drawKnobs(const std::vector<KnobDraw>& knobs, const render3d::Mat4& viewProj);
 	void drawParts(const std::vector<PartDraw>& parts, const render3d::Mat4& viewProj);
 };

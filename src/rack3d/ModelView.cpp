@@ -410,6 +410,9 @@ void ModelView::renderModel() {
 	float pixelRatio = APP->window->pixelRatio;
 	int width = std::max(1, (int) std::round(box.size.x * pixelRatio));
 	int height = std::max(1, (int) std::round(box.size.y * pixelRatio));
+	renderer.environment = settings::environment;
+	renderer.fog = settings::fog;
+	renderer.cableGlow = settings::cableGlow;
 	renderer.render(width, height, APP->scene->rack->getLayout(), getRenderer(), &cables, &knobs, &parts);
 }
 
