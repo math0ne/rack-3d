@@ -55,9 +55,28 @@ void Layout::clear() {
 
 
 std::vector<int> Layout::addCube() {
+	using render3d::Vec3;
+	const float h = CUBE_SIZE / 2;
+	// origin (top-left corner), right, down for each face
+	const Vec3 faces[6][3] = {
+		{Vec3(-h, h, h), Vec3(1, 0, 0), Vec3(0, -1, 0)}, // front, +z
+		{Vec3(h, h, h), Vec3(0, 0, -1), Vec3(0, -1, 0)}, // right, +x
+		{Vec3(h, h, -h), Vec3(-1, 0, 0), Vec3(0, -1, 0)}, // back, -z
+		{Vec3(-h, h, -h), Vec3(0, 0, 1), Vec3(0, -1, 0)}, // left, -x
+		{Vec3(-h, h, -h), Vec3(1, 0, 0), Vec3(0, 0, 1)}, // top, +y
+		{Vec3(-h, -h, h), Vec3(1, 0, 0), Vec3(0, 0, -1)}, // bottom, -y
+	};
 	std::vector<int> ids;
-	for (int i = 0; i < 6; i++)
-		ids.push_back(addPlacement(CUBE_ROWS, CUBE_HP));
+	for (int i = 0; i < 6; i++) {
+		int id = addPlacement(CUBE_ROWS, CUBE_HP);
+		Placement* p = getPlacement(id);
+		p->hasSurface = true;
+		p->surface.origin = faces[i][0];
+		p->surface.right = faces[i][1];
+		p->surface.down = faces[i][2];
+		p->surface.unitsPerPx = CUBE_SIZE / getRackRect(*p).size.x;
+		ids.push_back(id);
+	}
 	return ids;
 }
 
@@ -113,6 +132,14 @@ json_t* Layout::toJson() const {
 		json_object_set_new(pJ, "id", json_integer(p.id));
 		math::Rect r = p.gridRect;
 		json_object_set_new(pJ, "grid", json_pack("[i, i, i, i]", (int) r.pos.x, (int) r.pos.y, (int) r.size.x, (int) r.size.y));
+		if (p.hasSurface) {
+			const Surface& s = p.surface;
+			json_object_set_new(pJ, "surface", json_pack("{s:[f, f, f], s:[f, f, f], s:[f, f, f], s:f}",
+				"origin", s.origin.x, s.origin.y, s.origin.z,
+				"right", s.right.x, s.right.y, s.right.z,
+				"down", s.down.x, s.down.y, s.down.z,
+				"unitsPerPx", s.unitsPerPx));
+		}
 		json_array_append_new(placementsJ, pJ);
 	}
 	json_object_set_new(rack3dJ, "placements", placementsJ);
@@ -138,6 +165,22 @@ bool Layout::fromJson(json_t* rack3dJ) {
 			return false;
 		}
 		p.gridRect = math::Rect(x, y, w, h);
+		json_t* surfaceJ = json_object_get(pJ, "surface");
+		if (surfaceJ) {
+			Surface& s = p.surface;
+			double ox, oy, oz, rx, ry, rz, dx, dy, dz, u;
+			if (json_unpack(surfaceJ, "{s:[F, F, F], s:[F, F, F], s:[F, F, F], s:F}",
+				"origin", &ox, &oy, &oz, "right", &rx, &ry, &rz, "down", &dx, &dy, &dz, "unitsPerPx", &u) == 0) {
+				s.origin = render3d::Vec3(ox, oy, oz);
+				s.right = render3d::Vec3(rx, ry, rz).normalize();
+				s.down = render3d::Vec3(dx, dy, dz).normalize();
+				s.unitsPerPx = u;
+				p.hasSurface = true;
+			}
+			else {
+				WARN("rack3d: invalid surface for placement %d in patch, it won't show in 3D", p.id);
+			}
+		}
 		if (!l.insertPlacement(p)) {
 			WARN("rack3d: placement %d in patch overlaps another or is empty", p.id);
 			return false;
@@ -374,6 +417,56 @@ int layoutSelfTest() {
 		check(!c.fromJson(bad), "fromJson rejects blocks without a gutter");
 		json_decref(bad);
 		check(c.placements.size() == 6, "a rejected fromJson leaves the layout unchanged");
+	}
+
+	// Cube surfaces
+	{
+		using render3d::Vec3;
+		Layout cube;
+		std::vector<int> faces = cube.addCube();
+		const Vec3 normals[6] = {Vec3(0, 0, 1), Vec3(1, 0, 0), Vec3(0, 0, -1), Vec3(-1, 0, 0), Vec3(0, 1, 0), Vec3(0, -1, 0)};
+		bool cornersOk = true, normalsOk = true, centersOk = true;
+		for (int i = 0; i < 6; i++) {
+			const Surface& s = cube.getPlacement(faces[i])->surface;
+			normalsOk = normalsOk && s.normal().isNear(normals[i]);
+			centersOk = centersOk && s.toModel(math::Vec(570, 570)).isNear(normals[i]);
+			for (math::Vec c : {math::Vec(0, 0), math::Vec(1140, 0), math::Vec(0, 1140), math::Vec(1140, 1140)}) {
+				Vec3 p = s.toModel(c);
+				cornersOk = cornersOk && std::fabs(std::fabs(p.x) - 1) < 1e-4f && std::fabs(std::fabs(p.y) - 1) < 1e-4f && std::fabs(std::fabs(p.z) - 1) < 1e-4f;
+			}
+		}
+		check(normalsOk, "cube: every face's normal points outward along its axis");
+		check(centersOk, "cube: every face's centre is 1 unit out along its normal");
+		check(cornersOk, "cube: every face's corners are cube corners");
+
+		auto surface = [&](int i) {
+			return cube.getPlacement(faces[i])->surface;
+		};
+		// Neighbouring faces share edges, so racks wrap around the cube without gaps or flips
+		bool edgesOk = true;
+		for (float t : {0.f, 300.f, 1140.f}) {
+			edgesOk = edgesOk && surface(0).toModel(math::Vec(1140, t)).isNear(surface(1).toModel(math::Vec(0, t)));
+			edgesOk = edgesOk && surface(1).toModel(math::Vec(1140, t)).isNear(surface(2).toModel(math::Vec(0, t)));
+			edgesOk = edgesOk && surface(2).toModel(math::Vec(1140, t)).isNear(surface(3).toModel(math::Vec(0, t)));
+			edgesOk = edgesOk && surface(3).toModel(math::Vec(1140, t)).isNear(surface(0).toModel(math::Vec(0, t)));
+			edgesOk = edgesOk && surface(4).toModel(math::Vec(t, 1140)).isNear(surface(0).toModel(math::Vec(t, 0)));
+			edgesOk = edgesOk && surface(5).toModel(math::Vec(t, 0)).isNear(surface(0).toModel(math::Vec(t, 1140)));
+		}
+		check(edgesOk, "cube: neighbouring faces share edges (sides wrap; top and bottom meet the front's edges)");
+
+		json_t* j = cube.toJson();
+		Layout loaded;
+		bool same = loaded.fromJson(j);
+		json_decref(j);
+		for (int i = 0; same && i < 6; i++) {
+			const Placement* a = cube.getPlacement(faces[i]);
+			const Placement* b = loaded.getPlacement(faces[i]);
+			same = b && b->hasSurface && b->surface.origin.isNear(a->surface.origin) && b->surface.right.isNear(a->surface.right) && b->surface.down.isNear(a->surface.down) && std::fabs(b->surface.unitsPerPx - a->surface.unitsPerPx) < 1e-7f;
+		}
+		check(same, "cube: surfaces survive a JSON round-trip");
+		Layout plain;
+		int id = plain.addPlacement(2, 20);
+		check(!plain.getPlacement(id)->hasSurface, "a plain placement has no surface");
 	}
 
 	// Fitting stock patches

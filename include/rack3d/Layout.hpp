@@ -5,11 +5,35 @@
 
 #include <common.hpp>
 #include <math.hpp>
+#include <render3d/math.hpp>
 
 
 namespace rack {
 /** Rack 3D: racks placed on flat surfaces of a 3D model. */
 namespace rack3d {
+
+
+/** Where a placement sits on the 3D model: a flat rectangle, in model units.
+Rack pixel (x, y) of the block (relative to its top-left corner) lands at `origin + right * x * unitsPerPx + down * y * unitsPerPx`.
+*/
+struct Surface {
+	/** Model position of the block's top-left corner. */
+	render3d::Vec3 origin;
+	/** Unit vectors along the block's +x and +y (rack y points down). */
+	render3d::Vec3 right = render3d::Vec3(1, 0, 0);
+	render3d::Vec3 down = render3d::Vec3(0, -1, 0);
+	/** Model units per rack pixel. */
+	float unitsPerPx = 1.f;
+
+	/** Model position of a point given in pixels from the block's top-left corner. */
+	render3d::Vec3 toModel(math::Vec localPx) const {
+		return origin + right * (localPx.x * unitsPerPx) + down * (localPx.y * unitsPerPx);
+	}
+	/** Outward unit normal (the side the rack faces). */
+	render3d::Vec3 normal() const {
+		return down.cross(right).normalize();
+	}
+};
 
 
 /** A rack placed on a flat region of the 3D model.
@@ -21,6 +45,9 @@ struct Placement {
 	Never moves once allocated, so positions recorded in undo history stay valid.
 	*/
 	math::Rect gridRect;
+	/** Where it sits on the model. Placements without one aren't shown in 3D. */
+	bool hasSurface = false;
+	Surface surface;
 };
 
 
@@ -31,6 +58,8 @@ struct Layout {
 	/** A cube face: 3 rows × 76 HP is exactly square (1140 × 1140 px). */
 	static constexpr int CUBE_ROWS = 3;
 	static constexpr int CUBE_HP = 76;
+	/** The cube is 2 model units wide, centred on the origin. */
+	static constexpr float CUBE_SIZE = 2.f;
 
 	std::vector<Placement> placements;
 
@@ -45,7 +74,11 @@ struct Layout {
 	/** Removes a placement. Its block is not reused until clear(): the caller must move or remove its modules first. */
 	void removePlacement(int id);
 	void clear();
-	/** Adds 6 cube-face placements. Returns their ids in face order. */
+	/** Adds 6 cube-face placements, with surfaces, in the order front, right, back, left, top, bottom.
+	Model axes: +x right, +y up, +z toward the viewer. Side faces read upright; the top face's upper edge is at
+	the back and the bottom face's at the front, so both read upright when the cube tips toward them.
+	Returns their ids in face order.
+	*/
 	std::vector<int> addCube();
 
 	Placement* getPlacement(int id);
