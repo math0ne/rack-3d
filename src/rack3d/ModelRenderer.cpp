@@ -226,6 +226,133 @@ static void buildCylinder(Mesh& mesh) {
 }
 
 
+/** A solid of revolution around +z from a profile of (radius, z) points running from the base's outer edge up to
+the top's centre. Over `ridgeZ0`..`ridgeZ1` the radius is grooved by `ridges` grip ridges `ridgeDepth` deep.
+*/
+static void buildRevolved(Mesh& mesh, const std::vector<math::Vec>& profile, int ridges = 0, float ridgeDepth = 0, float ridgeZ0 = 0, float ridgeZ1 = 0) {
+	const int sides = ridges > 0 ? ridges * 4 : 32;
+	std::vector<Mesh::Vertex> vertices;
+	std::vector<uint32_t> indices;
+	auto radiusAt = [&](float r, float z, float theta, float* dr) {
+		*dr = 0;
+		if (ridges <= 0 || z < ridgeZ0 || z > ridgeZ1)
+			return r;
+		*dr = -r * ridgeDepth * ridges * std::sin(ridges * theta);
+		return r * (1 + ridgeDepth * std::cos(ridges * theta));
+	};
+	for (size_t k = 0; k + 1 < profile.size(); k++) {
+		math::Vec a = profile[k], b = profile[k + 1];
+		// The profile segment's outward normal in (radius, z): perpendicular to (dr, dz)
+		math::Vec d = b.minus(a);
+		math::Vec n2 = math::Vec(d.y, -d.x).normalize();
+		uint32_t base = vertices.size();
+		for (int j = 0; j <= sides; j++) {
+			float theta = 2 * M_PI * j / sides;
+			float c = std::cos(theta), s = std::sin(theta);
+			for (math::Vec p : {a, b}) {
+				float dr;
+				float r = radiusAt(p.x, p.y, theta, &dr);
+				// Ridges tilt the normal around the axis
+				Vec3 radial(c, s, 0), tangent(-s, c, 0);
+				Vec3 n = radial * n2.x + Vec3(0, 0, n2.y) - tangent * (r > 0 ? dr / r * n2.x : 0);
+				n = n.normalize();
+				vertices.push_back({r * c, r * s, p.y, n.x, n.y, n.z, 0, 0});
+			}
+		}
+		for (int j = 0; j < sides; j++) {
+			uint32_t i0 = base + 2 * j, i1 = i0 + 1, i2 = i0 + 2, i3 = i0 + 3;
+			indices.insert(indices.end(), {i0, i2, i1, i1, i2, i3});
+		}
+	}
+	mesh.upload(vertices, indices);
+}
+
+
+/** A unit box: x in [-0.5, 0.5], y in [0, 1], z in [0, 1]. */
+static void buildUnitBox(Mesh& mesh) {
+	buildBoxMesh(mesh, Vec3(-0.5f, 0, 0), Vec3(0.5f, 1, 1));
+}
+
+
+struct KnobStyleInfo {
+	/** Body color, pointer color. */
+	Vec3 body, pointer;
+	/** Pointer: from radius y0 to y1, `width` wide, on top at `top` (all in knob radii). */
+	float y0, y1, width, top;
+};
+
+
+static const KnobStyleInfo KNOB_STYLES[KnobDraw::NUM_STYLES] = {
+	// Trimpot: low silver cap with a dark slot across it
+	{Vec3(0.72f, 0.73f, 0.75f), Vec3(0.15f, 0.15f, 0.16f), -0.75f, 0.75f, 0.14f, 0.32f},
+	// Small: black, slim skirt, white pointer
+	{Vec3(0.08f, 0.08f, 0.09f), Vec3(0.92f, 0.92f, 0.92f), 0.2f, 0.72f, 0.09f, 0.6f},
+	// Medium: taller black with a wider skirt
+	{Vec3(0.08f, 0.08f, 0.09f), Vec3(0.92f, 0.92f, 0.92f), 0.15f, 0.74f, 0.08f, 0.76f},
+	// Large: gripped black with a grey cap insert
+	{Vec3(0.07f, 0.07f, 0.08f), Vec3(0.95f, 0.95f, 0.95f), 0.1f, 0.52f, 0.07f, 0.67f},
+};
+
+
+static void buildKnobMeshes(Mesh meshes[KnobDraw::NUM_STYLES], Mesh& cap) {
+	using P = math::Vec;
+	buildRevolved(meshes[KnobDraw::TRIMPOT], {P(0.95f, 0), P(0.95f, 0.25f), P(0.82f, 0.32f), P(0, 0.32f)});
+	buildRevolved(meshes[KnobDraw::SMALL], {P(1, 0), P(1, 0.12f), P(0.82f, 0.16f), P(0.78f, 0.55f), P(0.7f, 0.6f), P(0, 0.6f)});
+	buildRevolved(meshes[KnobDraw::MEDIUM], {P(1, 0), P(1, 0.14f), P(0.85f, 0.18f), P(0.8f, 0.7f), P(0.72f, 0.76f), P(0, 0.76f)}, 24, 0.015f, 0.18f, 0.7f);
+	buildRevolved(meshes[KnobDraw::LARGE], {P(1, 0), P(1, 0.1f), P(0.9f, 0.14f), P(0.88f, 0.6f), P(0.8f, 0.66f), P(0, 0.66f)}, 20, 0.045f, 0.14f, 0.6f);
+	buildRevolved(cap, {P(0.6f, 0), P(0.6f, 0.012f), P(0, 0.012f)});
+}
+
+
+void ModelRenderer::drawKnobs(const std::vector<KnobDraw>& knobs, const Mat4& viewProj) {
+	if (knobs.empty())
+		return;
+	if (!knobMeshes[0].vao) {
+		buildKnobMeshes(knobMeshes, knobCapMesh);
+		buildUnitBox(boxMesh);
+	}
+	GLint mvpLoc = glGetUniformLocation(program, "uMvp");
+	GLint modelLoc = glGetUniformLocation(program, "uModel");
+	GLint colorLoc = glGetUniformLocation(program, "uColor");
+	glUniform1i(glGetUniformLocation(program, "uUseTex"), 0);
+	glDisable(GL_CULL_FACE);
+	Mat4 modelRotation = Mat4::rotate(rotation);
+
+	auto draw = [&](Mesh& mesh, const Mat4& model, Vec3 color) {
+		Mat4 mvp = viewProj * model;
+		glUniformMatrix4fv(mvpLoc, 1, GL_FALSE, mvp.m);
+		glUniformMatrix4fv(modelLoc, 1, GL_FALSE, model.m);
+		glUniform3f(colorLoc, color.x, color.y, color.z);
+		mesh.draw();
+	};
+
+	for (const KnobDraw& k : knobs) {
+		// The knob's frame: x = rack right, y = rack up, z = out of the face
+		Mat4 frame;
+		frame.m[0] = k.right.x;
+		frame.m[1] = k.right.y;
+		frame.m[2] = k.right.z;
+		frame.m[4] = k.up.x;
+		frame.m[5] = k.up.y;
+		frame.m[6] = k.up.z;
+		frame.m[8] = k.normal.x;
+		frame.m[9] = k.normal.y;
+		frame.m[10] = k.normal.z;
+		frame.m[12] = k.center.x;
+		frame.m[13] = k.center.y;
+		frame.m[14] = k.center.z;
+		// Rack angles turn clockwise as seen on the panel; around the outward normal that's negative
+		Mat4 knob = modelRotation * frame * Mat4::rotate(render3d::Quat::fromAxisAngle(Vec3(0, 0, 1), -k.angle)) * Mat4::scale(Vec3(k.radius, k.radius, k.radius));
+		const KnobStyleInfo& style = KNOB_STYLES[k.style];
+		draw(knobMeshes[k.style], knob, style.body);
+		if (k.style == KnobDraw::LARGE)
+			draw(knobCapMesh, knob * Mat4::translate(Vec3(0, 0, style.top)), Vec3(0.32f, 0.32f, 0.34f));
+		Mat4 pointer = knob * Mat4::translate(Vec3(0, style.y0, style.top)) * Mat4::scale(Vec3(style.width, style.y1 - style.y0, 0.02f));
+		draw(boxMesh, pointer, style.pointer);
+	}
+}
+
+
 void ModelRenderer::drawCables(const CableScene* cables, const Mat4& viewProj) {
 	GLint mvpLoc = glGetUniformLocation(program, "uMvp");
 	GLint modelLoc = glGetUniformLocation(program, "uModel");
@@ -277,7 +404,7 @@ void ModelRenderer::drawCables(const CableScene* cables, const Mat4& viewProj) {
 }
 
 
-void ModelRenderer::render(int width, int height, Layout* layout, PlacementRenderer* textures, const CableScene* cables) {
+void ModelRenderer::render(int width, int height, Layout* layout, PlacementRenderer* textures, const CableScene* cables, const std::vector<KnobDraw>* knobs) {
 	if (!program) {
 		program = render3d::compileProgram(VERT_SRC, FRAG_SRC);
 		if (!program)
@@ -331,6 +458,8 @@ void ModelRenderer::render(int width, int height, Layout* layout, PlacementRende
 	}
 	glDisable(GL_POLYGON_OFFSET_FILL);
 
+	if (knobs)
+		drawKnobs(*knobs, getViewProjection(width, height));
 	if (cables)
 		drawCables(cables, getViewProjection(width, height));
 
@@ -348,6 +477,10 @@ void ModelRenderer::destroy() {
 		m.destroy();
 	cableMeshes.clear();
 	plugMesh.destroy();
+	for (render3d::Mesh& m : knobMeshes)
+		m.destroy();
+	knobCapMesh.destroy();
+	boxMesh.destroy();
 	for (Face& f : faces)
 		f.mesh.destroy();
 	faces.clear();

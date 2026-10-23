@@ -5,6 +5,10 @@
 #include <app/RackWidget.hpp>
 #include <app/CableWidget.hpp>
 #include <app/ParamWidget.hpp>
+#include <app/Knob.hpp>
+#include <app/SliderKnob.hpp>
+#include <engine/ParamQuantity.hpp>
+#include <set>
 #include <app/PortWidget.hpp>
 #include <widget/event.hpp>
 #include <color.hpp>
@@ -624,13 +628,29 @@ int runAppSelfTest() {
 				return false;
 			}
 		};
-		// The engine's view of the patch, minus runtime state ("data"), which changes while it runs
+		// The engine's view of the patch, minus runtime state ("data"), which changes while it runs.
+		// Sorted by id: the engine keeps cables in an unordered container, so their order varies between loads.
+		auto sortById = [](json_t* arrayJ) {
+			std::vector<json_t*> items;
+			size_t i;
+			json_t* itemJ;
+			json_array_foreach(arrayJ, i, itemJ)
+				items.push_back(json_incref(itemJ));
+			std::sort(items.begin(), items.end(), [](json_t* a, json_t* b) {
+				return json_integer_value(json_object_get(a, "id")) < json_integer_value(json_object_get(b, "id"));
+			});
+			json_array_clear(arrayJ);
+			for (json_t* item : items)
+				json_array_append_new(arrayJ, item);
+		};
 		auto engineJson = [&]() {
 			json_t* engineJ = APP->engine->toJson();
 			size_t i;
 			json_t* moduleJ;
 			json_array_foreach(json_object_get(engineJ, "modules"), i, moduleJ)
 				json_object_del(moduleJ, "data");
+			sortById(json_object_get(engineJ, "modules"));
+			sortById(json_object_get(engineJ, "cables"));
 			return engineJ;
 		};
 
@@ -866,6 +886,52 @@ int runAppSelfTest() {
 		check(finite && outside, "cables: after 2 s every rope is finite and outside the cube");
 		check(plugged, "cables: every rope's plug sits in its output port");
 		APP->window->screenshot(asset::user("view3d.png"));
+
+		// 3D knobs: one per 2D knob on the racks, styled by size, turning with the value
+		{
+			size_t expected = 0;
+			for (app::ModuleWidget* mw : APP->scene->rack->getModules()) {
+				for (app::ParamWidget* pw : mw->getParams()) {
+					if (dynamic_cast<app::Knob*>(pw) && !dynamic_cast<app::SliderKnob*>(pw))
+						expected++;
+				}
+			}
+			check(view->knobs.size() == expected && expected > 0, "knobs: every 2D knob has a 3D knob");
+			std::set<int> styles;
+			for (const KnobDraw& k : view->knobs)
+				styles.insert(k.style);
+			check(styles.size() >= 2, "knobs: different sizes get different styles");
+			check(KnobDraw::styleForDiameter(17.9f) == KnobDraw::TRIMPOT && KnobDraw::styleForDiameter(28.3f) == KnobDraw::SMALL && KnobDraw::styleForDiameter(36) == KnobDraw::MEDIUM && KnobDraw::styleForDiameter(53.9f) == KnobDraw::LARGE, "knobs: Rack's knob sizes map to trimpot, small, medium, large");
+			// Turn the VCO's frequency knob all the way: its 3D angle follows
+			app::ModuleWidget* vco = APP->scene->rack->getModule(1);
+			app::Knob* freq = vco ? dynamic_cast<app::Knob*>(vco->getParams()[0]) : NULL;
+			if (freq) {
+				freq->getParamQuantity()->setScaledValue(1.f);
+				APP->window->step();
+				bool found = false;
+				for (const KnobDraw& k : view->knobs) {
+					math::Vec c = freq->getRelativeOffset(freq->box.size.div(2), APP->scene->rack);
+					rack3d::Placement* p = APP->scene->rack->getLayout()->placementOf(vco->getGridBox());
+					if (p && k.center.isNear(p->surface.toModel(c.minus(rack3d::Layout::getRackRect(*p).pos)), 1e-4f))
+						found = std::fabs(k.angle - freq->maxAngle) < 1e-4f;
+				}
+				check(found, "knobs: turning a knob all the way turns its 3D knob to its max angle");
+				// Later tests turn this knob up
+				freq->getParamQuantity()->reset();
+			}
+
+			// Close-up of the VCO's knobs, slightly from the side, for a visual check
+			render3d::Quat savedRotation = view->renderer.rotation;
+			float savedDistance = view->renderer.distance;
+			view->renderer.rotation = render3d::Quat::fromAxisAngle(render3d::Vec3(1, 0, 0), 0.35f) * render3d::Quat::fromAxisAngle(render3d::Vec3(0, 1, 0), 0.5f);
+			view->renderer.distance = 2.6f;
+			view->angularVelocity = render3d::Vec3();
+			for (int i = 0; i < 10; i++)
+				APP->window->step();
+			APP->window->screenshot(asset::user("knobs.png"));
+			view->renderer.rotation = savedRotation;
+			view->renderer.distance = savedDistance;
+		}
 
 		// Cable physics settings act live: more segments rebuilds every rope with more points
 		settings::cableParams.segments = 48;

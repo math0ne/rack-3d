@@ -5,6 +5,9 @@
 #include <rack3d/PlacementRenderer.hpp>
 #include <rack3d/Layout.hpp>
 #include <rack3d/settings.hpp>
+#include <app/Knob.hpp>
+#include <app/SliderKnob.hpp>
+#include <engine/ParamQuantity.hpp>
 #include <app/Scene.hpp>
 #include <app/RackScrollWidget.hpp>
 #include <app/RackWidget.hpp>
@@ -63,6 +66,7 @@ void ModelView::step() {
 	// Cables follow the model's motion this frame, and loose ends follow the mouse
 	cables.update(dt, renderer.rotation, scene->rack, scene->rack->getLayout(), getPointer());
 	mouseInView = false;
+	updateKnobs();
 
 	requestAfterRender([this]() {
 		renderModel();
@@ -327,11 +331,45 @@ void ModelView::updateTextureScales() {
 }
 
 
+void ModelView::updateKnobs() {
+	knobs.clear();
+	app::RackWidget* rack = APP->scene->rack;
+	Layout* layout = rack->getLayout();
+	for (app::ModuleWidget* mw : rack->getModules()) {
+		const Placement* p = layout->placementOf(mw->getGridBox());
+		if (!p || !p->hasSurface)
+			continue;
+		const Surface& s = p->surface;
+		math::Vec origin = Layout::getRackRect(*p).pos;
+		for (app::ParamWidget* pw : mw->getParams()) {
+			app::Knob* knob = dynamic_cast<app::Knob*>(pw);
+			// Sliders are knobs too, but get their own 3D parts
+			if (!knob || dynamic_cast<app::SliderKnob*>(pw) || !pw->isVisible())
+				continue;
+			engine::ParamQuantity* pq = pw->getParamQuantity();
+			if (!pq)
+				continue;
+			KnobDraw k;
+			math::Vec center = pw->getRelativeOffset(pw->box.size.div(2), rack).minus(origin);
+			k.center = s.toModel(center);
+			k.right = s.right;
+			k.up = -s.down;
+			k.normal = s.normal();
+			float diameter = std::fmin(pw->box.size.x, pw->box.size.y);
+			k.radius = diameter / 2 * s.unitsPerPx;
+			k.style = KnobDraw::styleForDiameter(diameter);
+			k.angle = math::rescale(pq->getScaledValue(), 0.f, 1.f, knob->minAngle, knob->maxAngle);
+			knobs.push_back(k);
+		}
+	}
+}
+
+
 void ModelView::renderModel() {
 	float pixelRatio = APP->window->pixelRatio;
 	int width = std::max(1, (int) std::round(box.size.x * pixelRatio));
 	int height = std::max(1, (int) std::round(box.size.y * pixelRatio));
-	renderer.render(width, height, APP->scene->rack->getLayout(), getRenderer(), &cables);
+	renderer.render(width, height, APP->scene->rack->getLayout(), getRenderer(), &cables, &knobs);
 }
 
 

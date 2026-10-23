@@ -19,6 +19,8 @@ struct ModelView : widget::OpaqueWidget {
 	ModelRenderer renderer;
 	/** The 3D cables, simulated in world space as the model turns. */
 	CableScene cables;
+	/** 3D knobs over every 2D knob on a rack, gathered each frame. */
+	std::vector<KnobDraw> knobs;
 	/** Spin of the model, in world space: axis * radians per second. */
 	render3d::Vec3 angularVelocity;
 
@@ -47,6 +49,10 @@ struct ModelView : widget::OpaqueWidget {
 
 	/** Renders the scene at the view's size. Runs right after the placement textures each frame. */
 	void renderModel();
+	/** Gathers a KnobDraw for every knob (not slider) on a rack with a surface: position, frame, size style and its
+	current angle.
+	*/
+	void updateKnobs();
 	/** Sets each rack's texture resolution from its on-screen size, rounded up to a power of two, and skips racks
 	facing away (they keep their last texture).
 	*/
