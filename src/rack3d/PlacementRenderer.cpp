@@ -11,6 +11,14 @@ namespace rack {
 namespace rack3d {
 
 
+static bool drawingRackTextures = false;
+
+
+bool isDrawingRackTextures() {
+	return drawingRackTextures;
+}
+
+
 PlacementRenderer::~PlacementRenderer() {
 	clear();
 }
@@ -69,9 +77,12 @@ void PlacementRenderer::render(NVGcontext* vg, app::RackWidget* rack) {
 		widget::Widget::DrawArgs args;
 		args.vg = vg;
 		args.clipBox = rect;
-		// Rails and modules, then lights. Not plugs (layer 2) or cables (layer 3).
+		// Rails and modules, then lights. Not plugs (layer 2) or cables (layer 3). Not 3D elements: they get their
+		// own quads.
+		drawingRackTextures = true;
 		rack->widget::Widget::draw(args);
 		rack->widget::Widget::drawLayer(args, 1);
+		drawingRackTextures = false;
 
 		nvgluBindFramebuffer(target->fb);
 		glViewport(0, 0, size.x, size.y);

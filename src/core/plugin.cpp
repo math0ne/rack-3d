@@ -18,6 +18,7 @@ void init(rack::Plugin* p) {
 	p->addModel(modelGate_MIDI);
 	p->addModel(modelBlank);
 	p->addModel(modelNotes);
+	p->addModel(modelTester3D);
 }
 
 

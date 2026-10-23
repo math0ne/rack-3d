@@ -1,0 +1,161 @@
+{
+ "version": "2.6.6",
+ "rack3d": {
+  "version": 1,
+  "placements": [
+   {
+    "id": 0,
+    "grid": [
+     0,
+     0,
+     50,
+     2
+    ]
+   },
+   {
+    "id": 1,
+    "grid": [
+     0,
+     3,
+     50,
+     2
+    ]
+   },
+   {
+    "id": 2,
+    "grid": [
+     0,
+     6,
+     50,
+     2
+    ]
+   },
+   {
+    "id": 3,
+    "grid": [
+     0,
+     9,
+     50,
+     2
+    ]
+   },
+   {
+    "id": 4,
+    "grid": [
+     0,
+     12,
+     50,
+     2
+    ]
+   },
+   {
+    "id": 5,
+    "grid": [
+     0,
+     15,
+     50,
+     2
+    ]
+   }
+  ]
+ },
+ "modules": [
+  {
+   "id": 1,
+   "plugin": "Core",
+   "model": "Tester3D",
+   "version": "2.6.6",
+   "params": [
+    {
+     "id": 0,
+     "value": 0.25
+    },
+    {
+     "id": 1,
+     "value": 0.15
+    },
+    {
+     "id": 2,
+     "value": 0.55
+    }
+   ],
+   "pos": [
+    13,
+    0
+   ]
+  },
+  {
+   "id": 2,
+   "plugin": "Core",
+   "model": "Tester3D",
+   "version": "2.6.6",
+   "params": [
+    {
+     "id": 0,
+     "value": 0.55
+    },
+    {
+     "id": 1,
+     "value": 0.35
+    },
+    {
+     "id": 2,
+     "value": 0.08
+    }
+   ],
+   "pos": [
+    21,
+    0
+   ]
+  },
+  {
+   "id": 3,
+   "plugin": "Core",
+   "model": "Tester3D",
+   "version": "2.6.6",
+   "params": [
+    {
+     "id": 0,
+     "value": 0.9
+    },
+    {
+     "id": 1,
+     "value": 0.7
+    },
+    {
+     "id": 2,
+     "value": 0.33
+    }
+   ],
+   "pos": [
+    29,
+    0
+   ]
+  },
+  {
+   "id": 4,
+   "plugin": "Core",
+   "model": "Tester3D",
+   "version": "2.6.6",
+   "params": [
+    {
+     "id": 0,
+     "value": 0.6
+    },
+    {
+     "id": 1,
+     "value": 0.5
+    },
+    {
+     "id": 2,
+     "value": 0.8
+    }
+   ],
+   "pos": [
+    21,
+    3
+   ]
+  }
+ ],
+ "cables": []
+}

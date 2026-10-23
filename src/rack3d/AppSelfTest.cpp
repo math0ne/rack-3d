@@ -11,6 +11,8 @@
 #include <app/Switch.hpp>
 #include <engine/ParamQuantity.hpp>
 #include <set>
+#include <functional>
+#include <algorithm>
 #include <app/PortWidget.hpp>
 #include <widget/event.hpp>
 #include <color.hpp>
@@ -871,6 +873,65 @@ int runAppSelfTest() {
 		check(view && view->renderer.target.texture, "3d view: the scene renders each frame");
 		float pr = APP->window->pixelRatio;
 		check(view && view->renderer.target.width == (int) std::round(view->box.size.x * pr), "3d view: it renders at the view's pixel size");
+
+		// 3D elements: the 3D Tester's fin gets its own textured quad, hinged at its bottom edge and tilted out of the
+		// panel by its angle knob
+		if (view) {
+			app::RackWidget* rack = APP->scene->rack;
+			plugin::Model* model = plugin::getModel("Core", "Tester3D");
+			// The 3D Tester's angle knob (param 0, 0..1 for 0..85 degrees)
+			const int Tester3D_TILT = 0;
+			check(model, "3d elements: Core has the 3D Tester");
+			if (model) {
+				engine::Module* module = model->createModule();
+				APP->engine->addModule(module);
+				app::ModuleWidget* mw = model->createModuleWidget(module);
+				rack->addModule(mw);
+				rack->setModulePosNearest(mw, gridPx(40, 6));
+				Element3D* fin = NULL;
+				std::function<void(widget::Widget*)> find = [&](widget::Widget* w) {
+					for (widget::Widget* c : w->children) {
+						if (Element3D* e = dynamic_cast<Element3D*>(c))
+							fin = e;
+						find(c);
+					}
+				};
+				find(mw);
+				check(fin != NULL, "3d elements: the 3D Tester has an Element3D");
+				const Placement* p = rack->getLayout()->placementOf(mw->getGridBox());
+				auto finDraw = [&]() -> const ElementDraw* {
+					for (size_t i = 0; i < view->elementWidgets.size(); i++) {
+						if (view->elementWidgets[i] == fin)
+							return &view->elements[i];
+					}
+					return NULL;
+				};
+				// How far the fin's free edge leans out of the panel: sin of its angle
+				auto outward = [&](const ElementDraw* d) {
+					return (d->corners[0] - d->corners[3]).normalize().dot(p->surface.normal());
+				};
+				if (fin && p) {
+					module->params[Tester3D_TILT].setValue(1.f);
+					for (int i = 0; i < 60; i++)
+						APP->window->step();
+					const ElementDraw* d = finDraw();
+					check(d && d->texture, "3d elements: the fin is gathered with its own texture");
+					float height = fin->box.size.y * p->surface.unitsPerPx;
+					check(d && std::fabs((d->corners[0] - d->corners[3]).norm() - height) < 1e-3f, "3d elements: the fin keeps its height in 3D");
+					check(d && std::fabs(outward(d) - std::sin(85.f * M_PI / 180)) < 0.02f, "3d elements: turning the angle knob up stands the fin out of the panel");
+					module->params[Tester3D_TILT].setValue(0.f);
+					for (int i = 0; i < 60; i++)
+						APP->window->step();
+					d = finDraw();
+					check(d && std::fabs(outward(d)) < 0.02f, "3d elements: turning it down lays the fin flat on the panel");
+					check(glGetError() == GL_NO_ERROR, "3d elements: no GL errors");
+				}
+				rack->removeModule(mw);
+				delete mw;
+				APP->window->step();
+				check(view->elementWidgets.empty() || std::find(view->elementWidgets.begin(), view->elementWidgets.end(), fin) == view->elementWidgets.end(), "3d elements: a removed module's fin is gone");
+			}
+		}
 		view->renderer.rotation = render3d::Quat::fromAxisAngle(render3d::Vec3(1, 0, 0), 0.45f) * render3d::Quat::fromAxisAngle(render3d::Vec3(0, 1, 0), -0.6f);
 		for (int i = 0; i < 120; i++)
 			APP->window->step();

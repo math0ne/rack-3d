@@ -66,6 +66,8 @@ void requestAfterRender(std::function<void()> f);
 void renderRequested();
 /** Called by Window's destructor before deleting the NanoVG contexts. */
 void destroyRenderer();
+/** True while the rack's placement textures are being drawn. Element3D leaves itself out of them. */
+bool isDrawingRackTextures();
 
 
 } // namespace rack3d

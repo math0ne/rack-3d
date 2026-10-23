@@ -216,7 +216,10 @@ void main() {
 	// Light the surface gives off: cable glow, and LEDs and displays on panels (bright, strongly colored pixels)
 	vec3 emitted = vec3(0.0);
 	if (uMaterial == 1) {
-		vec3 t = texture(uTex, vUv).rgb;
+		vec4 tex = texture(uTex, vUv);
+		if (tex.a < 0.5)
+			discard;
+		vec3 t = tex.rgb / tex.a;
 		base = toLinear(t);
 		float hi = max(t.r, max(t.g, t.b)), lo = min(t.r, min(t.g, t.b));
 		float saturation = hi > 0.0 ? (hi - lo) / hi : 0.0;
@@ -765,7 +768,7 @@ void ModelRenderer::drawCableGlow(const CableScene* cables, const Mat4& viewProj
 }
 
 
-void ModelRenderer::drawScene(const Mat4& viewProj, bool shadowPass, PlacementRenderer* textures, const CableScene* cables, const std::vector<KnobDraw>* knobs, const std::vector<PartDraw>* parts) {
+void ModelRenderer::drawScene(const Mat4& viewProj, bool shadowPass, PlacementRenderer* textures, const CableScene* cables, const std::vector<KnobDraw>* knobs, const std::vector<PartDraw>* parts, const std::vector<ElementDraw>* elements) {
 	GLint mvpLoc = glGetUniformLocation(active, "uMvp");
 	GLint modelLoc = glGetUniformLocation(active, "uModel");
 	Mat4 identity;
@@ -811,12 +814,48 @@ void ModelRenderer::drawScene(const Mat4& viewProj, bool shadowPass, PlacementRe
 		drawKnobs(*knobs, viewProj);
 	if (parts)
 		drawParts(*parts, viewProj);
+	if (elements)
+		drawElements(*elements, viewProj, shadowPass);
 	if (cables)
 		drawCables(cables, viewProj);
 }
 
 
-void ModelRenderer::render(int width, int height, Layout* layout, PlacementRenderer* textures, const CableScene* cables, const std::vector<KnobDraw>* knobs, const std::vector<PartDraw>* parts) {
+void ModelRenderer::updateElementMeshes(const std::vector<ElementDraw>& elements) {
+	if (elementMeshes.size() < elements.size())
+		elementMeshes.resize(elements.size());
+	for (size_t i = 0; i < elements.size(); i++) {
+		const ElementDraw& e = elements[i];
+		Vec3 n = (e.corners[1] - e.corners[0]).cross(e.corners[3] - e.corners[0]).normalize();
+		// The texture stores the bottom row first
+		const float uv[4][2] = {{0, 1}, {1, 1}, {1, 0}, {0, 0}};
+		std::vector<Mesh::Vertex> vertices;
+		for (int k = 0; k < 4; k++)
+			vertices.push_back({e.corners[k].x, e.corners[k].y, e.corners[k].z, n.x, n.y, n.z, uv[k][0], uv[k][1]});
+		elementMeshes[i].upload(vertices, {0, 3, 2, 0, 2, 1});
+	}
+}
+
+
+void ModelRenderer::drawElements(const std::vector<ElementDraw>& elements, const Mat4& viewProj, bool shadowPass) {
+	Mat4 model = Mat4::rotate(rotation);
+	Mat4 mvp = viewProj * model;
+	glUniformMatrix4fv(glGetUniformLocation(active, "uMvp"), 1, GL_FALSE, mvp.m);
+	glUniformMatrix4fv(glGetUniformLocation(active, "uModel"), 1, GL_FALSE, model.m);
+	// Seen from both sides
+	glDisable(GL_CULL_FACE);
+	glActiveTexture(GL_TEXTURE0);
+	for (size_t i = 0; i < elements.size() && i < elementMeshes.size(); i++) {
+		if (!shadowPass) {
+			glBindTexture(GL_TEXTURE_2D, elements[i].texture);
+			setMaterial(MATERIAL_TEXTURE, Vec3(), 0.15f);
+		}
+		elementMeshes[i].draw();
+	}
+}
+
+
+void ModelRenderer::render(int width, int height, Layout* layout, PlacementRenderer* textures, const CableScene* cables, const std::vector<KnobDraw>* knobs, const std::vector<PartDraw>* parts, const std::vector<ElementDraw>* elements) {
 	if (!program) {
 		program = render3d::compileProgram(VERT_SRC, FRAG_SRC);
 		if (!program)
@@ -827,6 +866,8 @@ void ModelRenderer::render(int width, int height, Layout* layout, PlacementRende
 	updateMeshes(layout);
 	if (cables)
 		updateCableMeshes(cables);
+	if (elements)
+		updateElementMeshes(*elements);
 
 	glEnable(GL_DEPTH_TEST);
 	glDepthFunc(GL_LESS);
@@ -866,9 +907,9 @@ void ModelRenderer::render(int width, int height, Layout* layout, PlacementRende
 		glEnable(GL_POLYGON_OFFSET_FILL);
 		glPolygonOffset(2.f, 4.f);
 		shadowNear.bind();
-		drawScene(lightNear, true, textures, cables, knobs, parts);
+		drawScene(lightNear, true, textures, cables, knobs, parts, elements);
 		shadowFar.bind();
-		drawScene(lightFar, true, textures, cables, knobs, parts);
+		drawScene(lightFar, true, textures, cables, knobs, parts, elements);
 		glDisable(GL_POLYGON_OFFSET_FILL);
 	}
 
@@ -904,7 +945,7 @@ void ModelRenderer::render(int width, int height, Layout* layout, PlacementRende
 	glBindTexture(GL_TEXTURE_2D, shadows ? shadowFar.texture : 0);
 	glActiveTexture(GL_TEXTURE0);
 
-	drawScene(viewProj, false, textures, cables, knobs, parts);
+	drawScene(viewProj, false, textures, cables, knobs, parts, elements);
 
 	// Sky last, behind everything; seen from inside, so no culling
 	if (environment) {
@@ -936,6 +977,9 @@ void ModelRenderer::destroy() {
 	for (render3d::Mesh& m : cableMeshes)
 		m.destroy();
 	cableMeshes.clear();
+	for (render3d::Mesh& m : elementMeshes)
+		m.destroy();
+	elementMeshes.clear();
 	plugMesh.destroy();
 	for (render3d::Mesh& m : knobMeshes)
 		m.destroy();

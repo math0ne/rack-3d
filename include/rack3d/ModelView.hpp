@@ -2,6 +2,8 @@
 #include <widget/OpaqueWidget.hpp>
 #include <rack3d/ModelRenderer.hpp>
 #include <rack3d/CableScene.hpp>
+#include <rack3d/Element3D.hpp>
+#include <map>
 
 
 namespace rack {
@@ -22,6 +24,9 @@ struct ModelView : widget::OpaqueWidget {
 	/** 3D knobs over every 2D knob on a rack, and 3D slider handles and switches, gathered each frame. */
 	std::vector<KnobDraw> knobs;
 	std::vector<PartDraw> parts;
+	/** Modules' 3D elements on racks with surfaces, gathered each frame, and the widgets they come from. */
+	std::vector<ElementDraw> elements;
+	std::vector<Element3D*> elementWidgets;
 	/** Spin of the model, in world space: axis * radians per second. */
 	render3d::Vec3 angularVelocity;
 
@@ -114,6 +119,18 @@ private:
 	render3d::Quat snapFrom;
 	render3d::Quat snapTo;
 	float snapTime = 0;
+
+	/** Each 3D element's content, drawn every frame into its own framebuffer. */
+	struct ElementTarget {
+		NVGLUframebuffer* fb = NULL;
+		math::Vec size;
+	};
+	std::map<Element3D*, ElementTarget> elementTargets;
+	/** Draws each gathered element into its framebuffer and points its ElementDraw at the texture. Frees the
+	framebuffers of elements that are gone. Must be called with no NanoVG frame open.
+	*/
+	void renderElements(NVGcontext* vg);
+	void clearElementTargets();
 
 	/** NanoVG image wrapping renderer.target.texture. */
 	int image = -1;

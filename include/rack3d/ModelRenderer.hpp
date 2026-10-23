@@ -84,6 +84,15 @@ struct PartDraw {
 };
 
 
+/** A module's Element3D in 3D: a textured quad standing out of its rack. Model space. */
+struct ElementDraw {
+	/** Where the element's box corners are: top-left, top-right, bottom-right, bottom-left (in its own box). */
+	render3d::Vec3 corners[4];
+	/** The element's content (a NanoVG framebuffer texture, stored bottom row first). */
+	GLuint texture = 0;
+};
+
+
 /** Renders the 3D model (for now the cube body) with each placement's live texture on its surface,
 3D knobs, slider handles and switches over the 2D ones, and the cables, into an offscreen multisampled render target.
 */
@@ -120,7 +129,7 @@ struct ModelRenderer {
 	/** Renders at `width` x `height` pixels into `target`, with `cables` (world space) if given.
 	Leaves the default framebuffer bound.
 	*/
-	void render(int width, int height, Layout* layout, PlacementRenderer* textures, const CableScene* cables = NULL, const std::vector<KnobDraw>* knobs = NULL, const std::vector<PartDraw>* parts = NULL);
+	void render(int width, int height, Layout* layout, PlacementRenderer* textures, const CableScene* cables = NULL, const std::vector<KnobDraw>* knobs = NULL, const std::vector<PartDraw>* parts = NULL, const std::vector<ElementDraw>* elements = NULL);
 	/** Projection * view * model. */
 	render3d::Mat4 getMVP(int width, int height) const;
 	/** Projection * view, for things in world space (cables). */
@@ -168,7 +177,11 @@ private:
 
 	void updateMeshes(Layout* layout);
 	/** Draws everything but the sky with `viewProj`: model, faces (unless `shadowPass`), controls, cables, structures. */
-	void drawScene(const render3d::Mat4& viewProj, bool shadowPass, PlacementRenderer* textures, const CableScene* cables, const std::vector<KnobDraw>* knobs, const std::vector<PartDraw>* parts);
+	void drawScene(const render3d::Mat4& viewProj, bool shadowPass, PlacementRenderer* textures, const CableScene* cables, const std::vector<KnobDraw>* knobs, const std::vector<PartDraw>* parts, const std::vector<ElementDraw>* elements);
+	/** One quad mesh per element, rebuilt every frame. */
+	std::vector<render3d::Mesh> elementMeshes;
+	void updateElementMeshes(const std::vector<ElementDraw>& elements);
+	void drawElements(const std::vector<ElementDraw>& elements, const render3d::Mat4& viewProj, bool shadowPass);
 	void setMaterial(int material, render3d::Vec3 color, float specular, float emissive = 0.f);
 	void updateCableMeshes(const CableScene* cables);
 	void drawCables(const CableScene* cables, const render3d::Mat4& viewProj);

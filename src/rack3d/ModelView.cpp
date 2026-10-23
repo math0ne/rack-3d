@@ -1,4 +1,5 @@
 #include <cmath>
+#include <algorithm>
 
 #include <rack3d/ModelView.hpp>
 #include <rack3d/TilesView.hpp>
@@ -378,9 +379,24 @@ static bool hasLight(widget::Widget* w) {
 }
 
 
+/** Finds the 3D elements among a widget's descendants. */
+static void findElements(widget::Widget* w, std::vector<Element3D*>& out) {
+	for (widget::Widget* child : w->children) {
+		if (Element3D* e = dynamic_cast<Element3D*>(child)) {
+			if (e->isVisible())
+				out.push_back(e);
+			continue;
+		}
+		findElements(child, out);
+	}
+}
+
+
 void ModelView::updateControls() {
 	knobs.clear();
 	parts.clear();
+	elements.clear();
+	elementWidgets.clear();
 	app::RackWidget* rack = APP->scene->rack;
 	Layout* layout = rack->getLayout();
 	for (app::ModuleWidget* mw : rack->getModules()) {
@@ -389,6 +405,43 @@ void ModelView::updateControls() {
 			continue;
 		const Surface& s = p->surface;
 		math::Vec origin = Layout::getRackRect(*p).pos;
+
+		// 3D elements: the box's corners on the rack, swung out around the hinge edge by the element's tilt
+		std::vector<Element3D*> moduleElements;
+		findElements(mw, moduleElements);
+		for (Element3D* el : moduleElements) {
+			math::Vec size = el->box.size;
+			if (size.x <= 0 || size.y <= 0)
+				continue;
+			auto flat = [&](math::Vec local) {
+				return s.toModel(el->getRelativeOffset(local, rack).minus(origin));
+			};
+			math::Vec hingeA, hingeB;
+			switch (el->hinge) {
+				case Element3D::HINGE_BOTTOM: hingeA = math::Vec(0, size.y); hingeB = size; break;
+				case Element3D::HINGE_TOP: hingeA = math::Vec(0, 0); hingeB = math::Vec(size.x, 0); break;
+				case Element3D::HINGE_LEFT: hingeA = math::Vec(0, 0); hingeB = math::Vec(0, size.y); break;
+				case Element3D::HINGE_RIGHT: hingeA = math::Vec(size.x, 0); hingeB = size; break;
+			}
+			render3d::Vec3 h0 = flat(hingeA);
+			render3d::Vec3 axis = (flat(hingeB) - h0).normalize();
+			render3d::Vec3 n = s.normal();
+			render3d::Vec3 lift = n * (el->lift * s.unitsPerPx);
+			float c = std::cos(el->tilt), sn = std::sin(el->tilt);
+			ElementDraw d;
+			const math::Vec corners[4] = {math::Vec(0, 0), math::Vec(size.x, 0), size, math::Vec(0, size.y)};
+			for (int k = 0; k < 4; k++) {
+				// Split the corner's offset from the hinge into along-hinge and away-from-hinge parts, and turn the
+				// second out of the panel
+				render3d::Vec3 v = flat(corners[k]) - h0;
+				render3d::Vec3 along = axis * v.dot(axis);
+				render3d::Vec3 away = v - along;
+				d.corners[k] = h0 + along + away * c + n * (away.norm() * sn) + lift;
+			}
+			elements.push_back(d);
+			elementWidgets.push_back(el);
+		}
+
 		for (app::ParamWidget* pw : mw->getParams()) {
 			engine::ParamQuantity* pq = pw->getParamQuantity();
 			if (!pq || !pw->isVisible())
@@ -448,7 +501,62 @@ void ModelView::renderModel() {
 	renderer.fog = settings::fog;
 	renderer.cableGlow = settings::cableGlow;
 	renderer.contrast = settings::contrast;
-	renderer.render(width, height, APP->scene->rack->getLayout(), getRenderer(), &cables, &knobs, &parts);
+	renderElements(APP->window->vg);
+	renderer.render(width, height, APP->scene->rack->getLayout(), getRenderer(), &cables, &knobs, &parts, &elements);
+}
+
+
+void ModelView::renderElements(NVGcontext* vg) {
+	// Free the framebuffers of elements that are gone
+	for (auto it = elementTargets.begin(); it != elementTargets.end();) {
+		if (std::find(elementWidgets.begin(), elementWidgets.end(), it->first) == elementWidgets.end()) {
+			if (it->second.fb)
+				nvgluDeleteFramebuffer(it->second.fb);
+			it = elementTargets.erase(it);
+		}
+		else {
+			it++;
+		}
+	}
+
+	for (size_t i = 0; i < elementWidgets.size(); i++) {
+		Element3D* el = elementWidgets[i];
+		float scale = math::clamp(el->resolution, 0.25f, 8.f);
+		math::Vec size = el->box.size.mult(scale).ceil();
+		ElementTarget& t = elementTargets[el];
+		if (!t.fb || !t.size.equals(size)) {
+			if (t.fb)
+				nvgluDeleteFramebuffer(t.fb);
+			t.fb = nvgluCreateFramebuffer(vg, size.x, size.y, 0);
+			t.size = size;
+			if (!t.fb)
+				continue;
+		}
+		// Record first, bind only for nvgEndFrame (see PlacementRenderer::render)
+		nvgBeginFrame(vg, size.x, size.y, 1.0);
+		nvgScale(vg, scale, scale);
+		widget::Widget::DrawArgs args;
+		args.vg = vg;
+		args.clipBox = el->box.zeroPos();
+		el->drawContent(args);
+		el->widget::Widget::drawLayer(args, 1);
+		nvgluBindFramebuffer(t.fb);
+		glViewport(0, 0, size.x, size.y);
+		glClearColor(0.0, 0.0, 0.0, 0.0);
+		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
+		nvgEndFrame(vg);
+		nvgluBindFramebuffer(NULL);
+		elements[i].texture = t.fb->texture;
+	}
+}
+
+
+void ModelView::clearElementTargets() {
+	for (auto& pair : elementTargets) {
+		if (pair.second.fb)
+			nvgluDeleteFramebuffer(pair.second.fb);
+	}
+	elementTargets.clear();
 }
 
 
@@ -501,6 +609,7 @@ void ModelView::draw(const DrawArgs& args) {
 
 void ModelView::onContextDestroy(const ContextDestroyEvent& e) {
 	deleteImage(e.vg);
+	clearElementTargets();
 	renderer.destroy();
 	OpaqueWidget::onContextDestroy(e);
 }

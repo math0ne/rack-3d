@@ -127,6 +127,14 @@
       "tags": [
         "Blank"
       ]
+    },
+    {
+      "slug": "Tester3D",
+      "name": "3D Tester",
+      "description": "Rack 3D test module: a display fin that stands out of the panel in the 3D view, tilted and redrawn live by its knobs",
+      "tags": [
+        "Visual"
+      ]
     }
   ]
 }

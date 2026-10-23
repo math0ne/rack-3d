@@ -121,6 +121,8 @@ Directly including Rack headers other than rack.hpp in your plugin is unsupporte
 #include <dsp/digital.hpp>
 #include <dsp/convert.hpp>
 
+#include <rack3d/Element3D.hpp>
+
 #include <simd/Vector.hpp>
 #include <simd/functions.hpp>
 
