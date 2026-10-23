@@ -23,6 +23,7 @@
 #include <string.hpp>
 #include <library.hpp>
 #include <network.hpp>
+#include <rack3d/AppSelfTest.hpp>
 
 #include <getopt.h>
 #include <unistd.h> // for getopt
@@ -252,8 +253,18 @@ int main(int argc, char* argv[]) {
 	}
 #endif
 
+	// Rack 3D: RACK3D_SELFTEST=1 runs the in-app self-test instead of the window, then exits with its result.
+	// It starts from an empty rack and destroys whatever it builds, so run it with a throwaway user directory
+	// (tests/rack3d/run-app.sh).
+	const char* selfTestEnv = std::getenv("RACK3D_SELFTEST");
+	bool selfTest = selfTestEnv && selfTestEnv[0] && selfTestEnv[0] != '0';
+	int selfTestFailures = 0;
+
 	// Initialize patch
-	if (logger::wasTruncated() && osdialog_message(OSDIALOG_INFO, OSDIALOG_YES_NO, string::translate("standalone.crashed").c_str())) {
+	if (selfTest) {
+		// No patch: loading one could open dialogs (e.g. missing plugins) that block the test
+	}
+	else if (logger::wasTruncated() && osdialog_message(OSDIALOG_INFO, OSDIALOG_YES_NO, string::translate("standalone.crashed").c_str())) {
 		// Do nothing, which leaves a blank patch
 	}
 	else {
@@ -263,7 +274,10 @@ int main(int argc, char* argv[]) {
 	APP->engine->startFallbackThread();
 
 	// Run context
-	if (settings::headless) {
+	if (selfTest) {
+		selfTestFailures = rack3d::runAppSelfTest();
+	}
+	else if (settings::headless) {
 		printf("Press enter to exit.\n");
 		getchar();
 	}
@@ -321,7 +335,7 @@ int main(int argc, char* argv[]) {
 		settings::restart = false;
 		return main(argc, argv);
 	}
-	return 0;
+	return selfTestFailures == 0 ? 0 : 1;
 }
 
 

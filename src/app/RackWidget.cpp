@@ -18,6 +18,7 @@
 #include <patch.hpp>
 #include <helpers.hpp>
 #include <rack3d/Layout.hpp>
+#include <rack3d/settings.hpp>
 
 
 namespace rack {
@@ -739,9 +740,22 @@ bool RackWidget::hasModules() {
 	return internal->moduleContainer->children.empty();
 }
 
+/** Rack 3D: whether a module box (rack px) may sit here, i.e. lies entirely inside one placement.
+Always true while placements are off.
+*/
+static bool isPlaceable(rack3d::Layout& layout, math::Rect box) {
+	if (!rack3d::settings::placementsEnabled)
+		return true;
+	math::Rect gridBox(((box.pos - RACK_OFFSET) / RACK_GRID_SIZE).round(), (box.size / RACK_GRID_SIZE).round());
+	return layout.placementOf(gridBox) != NULL;
+}
+
 bool RackWidget::requestModulePos(ModuleWidget* mw, math::Vec pos) {
-	// Check intersection with other modules
 	math::Rect mwBox = math::Rect(pos, mw->box.size);
+	if (!isPlaceable(internal->layout, mwBox))
+		return false;
+
+	// Check intersection with other modules
 	for (widget::Widget* w2 : internal->moduleContainer->children) {
 		// Don't intersect with self
 		if (mw == w2)
@@ -776,7 +790,47 @@ static math::Vec eachNearestGridPos(math::Vec pos, std::function<bool(math::Vec 
 	return math::Vec();
 }
 
+/** Rack 3D: like eachNearestGridPos(), but for placements mode, where most of the grid is off-limits.
+Calls f on grid-aligned rack positions, first the one nearest `pos`, then every cell of the layout's bounding box
+ordered by distance in rack px. Unlike eachNearestGridPos() it always ends: returns the first position f accepts,
+or a non-finite Vec if f rejects them all.
+*/
+static math::Vec eachNearestLayoutPos(rack3d::Layout& layout, math::Vec pos, std::function<bool(math::Vec pos)> f) {
+	math::Vec start = ((pos - RACK_OFFSET) / RACK_GRID_SIZE).round() * RACK_GRID_SIZE + RACK_OFFSET;
+	if (f(start))
+		return start;
+
+	if (layout.placements.empty())
+		return math::Vec(NAN, NAN);
+	math::Rect bounds = layout.placements[0].gridRect;
+	for (const rack3d::Placement& p : layout.placements)
+		bounds = bounds.expand(p.gridRect);
+
+	std::vector<math::Vec> candidates;
+	for (int y = (int) bounds.getTop(); y < (int) bounds.getBottom(); y++) {
+		for (int x = (int) bounds.getLeft(); x < (int) bounds.getRight(); x++) {
+			candidates.push_back(math::Vec(x, y) * RACK_GRID_SIZE + RACK_OFFSET);
+		}
+	}
+	std::stable_sort(candidates.begin(), candidates.end(), [&](math::Vec a, math::Vec b) {
+		return (a - pos).square() < (b - pos).square();
+	});
+	for (math::Vec c : candidates) {
+		if (f(c))
+			return c;
+	}
+	return math::Vec(NAN, NAN);
+}
+
 void RackWidget::setModulePosNearest(ModuleWidget* mw, math::Vec pos) {
+	if (rack3d::settings::placementsEnabled) {
+		// If nothing fits, the module stays where it is
+		eachNearestLayoutPos(internal->layout, pos, [&](math::Vec pos) -> bool {
+			return requestModulePos(mw, pos);
+		});
+		return;
+	}
+
 	eachNearestGridPos(pos, [&](math::Vec pos) -> bool {
 		return requestModulePos(mw, pos);
 	});
@@ -1357,6 +1411,8 @@ bool RackWidget::requestSelectionPos(math::Vec delta) {
 	for (ModuleWidget* mw : getSelected()) {
 		math::Rect mwBox = mw->box;
 		mwBox.pos += delta;
+		if (!isPlaceable(internal->layout, mwBox))
+			return false;
 		mwBoxes[mw] = mwBox;
 	}
 
@@ -1383,6 +1439,19 @@ bool RackWidget::requestSelectionPos(math::Vec delta) {
 }
 
 void RackWidget::setSelectionPosNearest(math::Vec delta) {
+	std::set<ModuleWidget*> selected = getSelected();
+	if (rack3d::settings::placementsEnabled && !selected.empty()) {
+		// Search over where the selection's top-left corner lands, so the search covers the layout's cells.
+		// If nothing fits, the selection stays where it is.
+		math::Vec anchor(INFINITY, INFINITY);
+		for (ModuleWidget* mw : selected)
+			anchor = anchor.min(mw->box.pos);
+		eachNearestLayoutPos(internal->layout, anchor + delta, [&](math::Vec pos) -> bool {
+			return requestSelectionPos(pos - anchor);
+		});
+		return;
+	}
+
 	eachNearestGridPos(delta, [&](math::Vec delta) -> bool {
 		return requestSelectionPos(delta);
 	});
