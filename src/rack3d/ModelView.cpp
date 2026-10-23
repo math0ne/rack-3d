@@ -4,6 +4,7 @@
 #include <rack3d/TilesView.hpp>
 #include <rack3d/PlacementRenderer.hpp>
 #include <rack3d/Layout.hpp>
+#include <rack3d/settings.hpp>
 #include <app/Scene.hpp>
 #include <app/RackScrollWidget.hpp>
 #include <app/RackWidget.hpp>
@@ -52,7 +53,7 @@ void ModelView::step() {
 		if (speed > 1e-4f) {
 			render3d::Quat dq = render3d::Quat::fromAxisAngle(angularVelocity, speed * dt);
 			renderer.rotation = (dq * renderer.rotation).normalize();
-			angularVelocity = angularVelocity * std::exp(-SPIN_DAMPING * dt);
+			angularVelocity = angularVelocity * std::exp(-settings::spinDamping * dt);
 		}
 		else {
 			angularVelocity = render3d::Vec3();

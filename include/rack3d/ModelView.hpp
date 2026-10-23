@@ -23,8 +23,6 @@ struct ModelView : widget::OpaqueWidget {
 	render3d::Vec3 angularVelocity;
 
 	static constexpr float DRAG_RADIANS_PER_PX = 0.008f;
-	/** Spin decays by e^(-SPIN_DAMPING * seconds). */
-	static constexpr float SPIN_DAMPING = 3.f;
 	static constexpr float SNAP_SECONDS = 0.4f;
 	static constexpr float MIN_DISTANCE = 2.5f;
 	static constexpr float MAX_DISTANCE = 20.f;

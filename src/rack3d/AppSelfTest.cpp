@@ -867,6 +867,16 @@ int runAppSelfTest() {
 		check(plugged, "cables: every rope's plug sits in its output port");
 		APP->window->screenshot(asset::user("view3d.png"));
 
+		// Cable physics settings act live: more segments rebuilds every rope with more points
+		settings::cableParams.segments = 48;
+		APP->window->step();
+		bool rebuilt = !scene.entries.empty();
+		for (const auto& pair : scene.entries)
+			rebuilt = rebuilt && pair.second.rope.count() == 48 + 4;
+		check(rebuilt, "cables: changing segments in the settings rebuilds every rope");
+		settings::resetCableSettings();
+		APP->window->step();
+
 		// Removing a cable in Rack removes its rope
 		app::CableWidget* first = APP->scene->rack->getCables().front();
 		APP->scene->rack->removeCable(first);

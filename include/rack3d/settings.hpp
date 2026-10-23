@@ -2,6 +2,7 @@
 #include <jansson.h>
 
 #include <common.hpp>
+#include <rack3d/CableSim.hpp>
 
 
 namespace rack {
@@ -14,6 +15,16 @@ namespace settings {
 
 /** Constrain modules to rack placements (experimental). */
 extern bool placementsEnabled;
+/** 3D cable physics, tunable from View > Rack 3D > Cable physics. */
+extern RopeParams cableParams;
+/** The 3D view's spin decays by e^(-spinDamping * seconds) after you let go. */
+extern float spinDamping;
+
+/** Cable physics defaults: the cable sandbox's tuning, at Rack scale (a ~4 mm cable on a 2-unit cube). */
+RopeParams defaultCableParams();
+static const float DEFAULT_SPIN_DAMPING = 3.f;
+/** Puts the cable physics and spin damping back to their defaults. */
+void resetCableSettings();
 
 json_t* toJson();
 void fromJson(json_t* rootJ);

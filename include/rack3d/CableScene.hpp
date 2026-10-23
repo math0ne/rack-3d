@@ -60,13 +60,10 @@ struct CableScene {
 	float hoverHeight = 0.15f;
 	float snapHeight = 0.03f;
 
+	/** Copied from rack3d::settings::cableParams at every update(), so the View menu's sliders act live. */
 	RopeParams params;
 
-	CableScene() {
-		// Rack scale: a ~4 mm cable is ~12 rack px, and the cube's 760 px faces are 2 units
-		params.radius = 0.016f;
-		params.plugLen = 0.1f;
-	}
+	CableScene();
 
 	/** Physics step, seconds. */
 	float stepSeconds = 1 / 240.f;

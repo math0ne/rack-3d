@@ -2,6 +2,7 @@
 
 #include <rack3d/CableScene.hpp>
 #include <rack3d/Layout.hpp>
+#include <rack3d/settings.hpp>
 #include <app/RackWidget.hpp>
 #include <app/CableWidget.hpp>
 #include <app/PortWidget.hpp>
@@ -72,7 +73,17 @@ static RopeEnd heldEnd(app::CableWidget* cw, const Pointer& pointer, Quat rotati
 }
 
 
+CableScene::CableScene() {
+	params = settings::cableParams;
+}
+
+
 void CableScene::update(float dt, Quat rotation, app::RackWidget* rack, Layout* layout, const Pointer& pointer) {
+	// Settings act live. A new segment count changes every rope's point count, so they're laid out again.
+	if (settings::cableParams.segments != params.segments)
+		entries.clear();
+	params = settings::cableParams;
+
 	if (!hasLastRotation) {
 		lastRotation = rotation;
 		hasLastRotation = true;

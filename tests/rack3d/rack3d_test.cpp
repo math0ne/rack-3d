@@ -1,5 +1,6 @@
 // Runs the rack3d tests against libRack. Build and run with tests/rack3d/run.sh.
 #include <cstdio>
+#include <cmath>
 
 #include <logger.hpp>
 #include <rack3d/Layout.hpp>
@@ -38,6 +39,25 @@ static int settingsTest() {
 		WARN("rack3d settings: settings.json round-trip lost placementsEnabled");
 		failures++;
 	}
+
+	// Cable physics settings round-trip, and reset
+	s::cableParams.segments = 17;
+	s::cableParams.bend = 0.8f;
+	s::cableParams.radius = 0.03f;
+	s::spinDamping = 1.5f;
+	json_t* cablesJ = s::toJson();
+	s::resetCableSettings();
+	if (s::cableParams.segments != s::defaultCableParams().segments || s::spinDamping != s::DEFAULT_SPIN_DAMPING) {
+		WARN("rack3d settings: resetCableSettings didn't restore defaults");
+		failures++;
+	}
+	s::fromJson(cablesJ);
+	json_decref(cablesJ);
+	if (s::cableParams.segments != 17 || std::fabs(s::cableParams.bend - 0.8f) > 1e-6f || std::fabs(s::cableParams.radius - 0.03f) > 1e-6f || std::fabs(s::spinDamping - 1.5f) > 1e-6f) {
+		WARN("rack3d settings: cable physics settings round-trip failed");
+		failures++;
+	}
+	s::resetCableSettings();
 
 	// A settings.json without a "rack3d" key leaves the defaults alone
 	s::placementsEnabled = false;

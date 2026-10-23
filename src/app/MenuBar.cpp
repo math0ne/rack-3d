@@ -25,7 +25,7 @@
 #include <plugin.hpp>
 #include <patch.hpp>
 #include <library.hpp>
-#include <rack3d/settings.hpp>
+#include <rack3d/SettingsMenu.hpp>
 
 
 namespace rack {
@@ -633,10 +633,7 @@ struct ViewButton : MenuButton {
 
 		menu->addChild(createBoolPtrMenuItem(string::translate("MenuBar.view.preferDarkPanels"), "", &settings::preferDarkPanels));
 
-		menu->addChild(new ui::MenuSeparator);
-		menu->addChild(createMenuLabel("Rack 3D"));
-
-		menu->addChild(createBoolPtrMenuItem("Rack placements (experimental)", "", &rack3d::settings::placementsEnabled));
+		rack3d::appendViewMenu(menu);
 	}
 };
 
