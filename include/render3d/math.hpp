@@ -67,6 +67,8 @@ struct Quat {
 	static Quat fromBasis(Vec3 c0, Vec3 c1, Vec3 c2);
 	/** Shortest-path spherical interpolation. */
 	static Quat slerp(Quat a, Quat b, float t);
+	/** The shortest rotation taking direction `a` to direction `b` (needn't be normalized). */
+	static Quat fromTo(Vec3 a, Vec3 b);
 
 	/** The rotation `b` followed by this one. */
 	Quat operator*(Quat b) const;

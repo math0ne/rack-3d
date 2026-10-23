@@ -59,6 +59,9 @@ void ModelView::step() {
 		}
 	}
 
+	// Cables follow the model's motion this frame
+	cables.update(dt, renderer.rotation, scene->rack, scene->rack->getLayout());
+
 	requestAfterRender([this]() {
 		renderModel();
 	});
@@ -288,7 +291,7 @@ void ModelView::renderModel() {
 	float pixelRatio = APP->window->pixelRatio;
 	int width = std::max(1, (int) std::round(box.size.x * pixelRatio));
 	int height = std::max(1, (int) std::round(box.size.y * pixelRatio));
-	renderer.render(width, height, APP->scene->rack->getLayout(), getRenderer());
+	renderer.render(width, height, APP->scene->rack->getLayout(), getRenderer(), &cables);
 }
 
 

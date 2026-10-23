@@ -11,6 +11,7 @@ namespace rack3d {
 
 struct Layout;
 struct PlacementRenderer;
+struct CableScene;
 
 
 /** Renders the 3D model (for now the cube body) with each placement's live texture on its surface,
@@ -30,10 +31,14 @@ struct ModelRenderer {
 	render3d::RenderTarget target;
 
 	~ModelRenderer();
-	/** Renders at `width` x `height` pixels into `target`. Leaves the default framebuffer bound. */
-	void render(int width, int height, Layout* layout, PlacementRenderer* textures);
-	/** Projection * view * model for the last rendered size. */
+	/** Renders at `width` x `height` pixels into `target`, with `cables` (world space) if given.
+	Leaves the default framebuffer bound.
+	*/
+	void render(int width, int height, Layout* layout, PlacementRenderer* textures, const CableScene* cables = NULL);
+	/** Projection * view * model. */
 	render3d::Mat4 getMVP(int width, int height) const;
+	/** Projection * view, for things in world space (cables). */
+	render3d::Mat4 getViewProjection(int width, int height) const;
 	/** Frees GL objects. Call before the GL context goes away. */
 	void destroy();
 
@@ -47,8 +52,12 @@ private:
 	std::vector<Face> faces;
 	/** Surfaces the face meshes were built from, to rebuild them when the layout changes. */
 	std::vector<float> meshKey;
+	/** One tube mesh per cable, rebuilt every frame; one unit cylinder for every plug. */
+	std::vector<render3d::Mesh> cableMeshes;
+	render3d::Mesh plugMesh;
 
 	void updateMeshes(Layout* layout);
+	void drawCables(const CableScene* cables, const render3d::Mat4& viewProj);
 };
 
 

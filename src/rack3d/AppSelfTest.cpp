@@ -16,6 +16,7 @@
 #include <render3d/gl.hpp>
 #include <rack3d/ModelRenderer.hpp>
 #include <rack3d/ModelView.hpp>
+#include <rack3d/CableScene.hpp>
 #include <app/RackScrollWidget.hpp>
 #include <stb_image_write.h>
 #include <plugin.hpp>
@@ -841,9 +842,37 @@ int runAppSelfTest() {
 		float pr = APP->window->pixelRatio;
 		check(view && view->renderer.target.width == (int) std::round(view->box.size.x * pr), "3d view: it renders at the view's pixel size");
 		view->renderer.rotation = render3d::Quat::fromAxisAngle(render3d::Vec3(1, 0, 0), 0.45f) * render3d::Quat::fromAxisAngle(render3d::Vec3(0, 1, 0), -0.6f);
-		for (int i = 0; i < 5; i++)
+		for (int i = 0; i < 120; i++)
 			APP->window->step();
+
+		// 3D cables: one rope per cable, outside the cube, plugged into its ports
+		CableScene& scene = view->cables;
+		check(scene.entries.size() == APP->scene->rack->getCables().size() && scene.entries.size() == 7, "cables: every cable has a rope in 3D");
+		BoxCollider box;
+		box.rotation = view->renderer.rotation;
+		bool finite = true, outside = true, plugged = true;
+		for (const auto& pair : scene.entries) {
+			const Rope& r = pair.second.rope;
+			for (int i = 0; i < r.count(); i++) {
+				render3d::Vec3 p = r.P[i];
+				finite = finite && std::isfinite(p.x) && std::isfinite(p.y) && std::isfinite(p.z);
+				if (i >= 2 && i < r.count() - 2)
+					outside = outside && !box.pushOut(p, scene.params.radius * 0.5f);
+			}
+			PortPose out;
+			getPortPose(pair.first->outputPort, APP->scene->rack, APP->scene->rack->getLayout(), &out);
+			plugged = plugged && r.P[0].isNear(box.rotation.rotate(out.position), 1e-3f);
+		}
+		check(finite && outside, "cables: after 2 s every rope is finite and outside the cube");
+		check(plugged, "cables: every rope's plug sits in its output port");
 		APP->window->screenshot(asset::user("view3d.png"));
+
+		// Removing a cable in Rack removes its rope
+		app::CableWidget* first = APP->scene->rack->getCables().front();
+		APP->scene->rack->removeCable(first);
+		delete first;
+		APP->window->step();
+		check(scene.entries.size() == 6, "cables: removing a cable removes its rope");
 		check(glGetError() == GL_NO_ERROR, "3d view: no GL errors");
 
 		setTilesViewShown(true);

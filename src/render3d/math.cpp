@@ -64,6 +64,23 @@ Quat Quat::slerp(Quat a, Quat b, float t) {
 }
 
 
+Quat Quat::fromTo(Vec3 a, Vec3 b) {
+	a = a.normalize();
+	b = b.normalize();
+	float d = a.dot(b);
+	if (d > 0.999999f)
+		return Quat();
+	if (d < -0.999999f) {
+		// Opposite: half a turn around any axis perpendicular to `a`
+		Vec3 axis = Vec3(1, 0, 0).cross(a);
+		if (axis.norm() < 1e-4f)
+			axis = Vec3(0, 1, 0).cross(a);
+		return fromAxisAngle(axis, M_PI);
+	}
+	return fromAxisAngle(a.cross(b), std::acos(d));
+}
+
+
 Quat Quat::operator*(Quat b) const {
 	return Quat(
 		w * b.w - x * b.x - y * b.y - z * b.z,
@@ -258,6 +275,15 @@ int mathSelfTest() {
 	check(Quat::slerp(Quat(), qz, 0).angleTo(Quat()) < 1e-3f && Quat::slerp(Quat(), qz, 1).angleTo(qz) < 1e-3f, "slerp ends at its ends");
 	Quat negZ(-qz.w, -qz.x, -qz.y, -qz.z);
 	check(Quat::slerp(Quat(), negZ, 0.5f).angleTo(half) < 1e-3f, "slerp takes the short way when quats have opposite signs");
+
+	// fromTo, including opposite directions
+	bool fromToOk = true;
+	for (Vec3 a : {Vec3(1, 0, 0), Vec3(0, 0, 1), Vec3(1, 2, 3)}) {
+		for (Vec3 b : {Vec3(0, 1, 0), Vec3(0, 0, -1), -a, a, Vec3(-2, 0.5f, 1)}) {
+			fromToOk = fromToOk && Quat::fromTo(a, b).rotate(a.normalize()).isNear(b.normalize(), 1e-3f);
+		}
+	}
+	check(fromToOk, "fromTo takes a to b (including a to -a)");
 
 	// Quaternion from basis, including the trace <= 0 branches
 	Quat samples[] = {

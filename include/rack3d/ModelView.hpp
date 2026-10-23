@@ -1,6 +1,7 @@
 #pragma once
 #include <widget/OpaqueWidget.hpp>
 #include <rack3d/ModelRenderer.hpp>
+#include <rack3d/CableScene.hpp>
 
 
 namespace rack {
@@ -16,6 +17,8 @@ to face you.
 */
 struct ModelView : widget::OpaqueWidget {
 	ModelRenderer renderer;
+	/** The 3D cables, simulated in world space as the model turns. */
+	CableScene cables;
 	/** Spin of the model, in world space: axis * radians per second. */
 	render3d::Vec3 angularVelocity;
 

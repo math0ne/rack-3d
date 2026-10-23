@@ -1,6 +1,7 @@
 #include <rack3d/ModelRenderer.hpp>
 #include <rack3d/Layout.hpp>
 #include <rack3d/PlacementRenderer.hpp>
+#include <rack3d/CableScene.hpp>
 
 
 namespace rack {
@@ -139,15 +140,144 @@ void ModelRenderer::updateMeshes(Layout* layout) {
 }
 
 
-Mat4 ModelRenderer::getMVP(int width, int height) const {
+Mat4 ModelRenderer::getViewProjection(int width, int height) const {
 	float aspect = height > 0 ? (float) width / height : 1.f;
 	Mat4 proj = Mat4::perspective(fovY, aspect, 0.1f, 100.f);
 	Mat4 view = Mat4::lookAt(Vec3(0, 0, distance), Vec3(0, 0, 0), Vec3(0, 1, 0));
-	return proj * view * Mat4::rotate(rotation);
+	return proj * view;
 }
 
 
-void ModelRenderer::render(int width, int height, Layout* layout, PlacementRenderer* textures) {
+Mat4 ModelRenderer::getMVP(int width, int height) const {
+	return getViewProjection(width, height) * Mat4::rotate(rotation);
+}
+
+
+/** Sides around a cable tube and a plug. */
+static const int TUBE_SIDES = 10;
+static const int PLUG_SIDES = 16;
+
+
+/** A tube of radius `r` along `points`, using parallel-transport frames so it doesn't twist. */
+static void buildTube(Mesh& mesh, const std::vector<Vec3>& points, float r) {
+	int n = points.size();
+	if (n < 2)
+		return;
+	std::vector<Mesh::Vertex> vertices;
+	vertices.reserve(n * TUBE_SIDES);
+	Vec3 t = (points[1] - points[0]).normalize();
+	Vec3 normal = Vec3(t.y, -t.x, t.z).cross(t);
+	if (normal.norm() < 1e-4f)
+		normal = Vec3(0, t.z, -t.y);
+	normal = normal.normalize();
+	for (int i = 0; i < n; i++) {
+		t = (points[std::min(i + 1, n - 1)] - points[std::max(i - 1, 0)]).normalize();
+		normal = (normal - t * t.dot(normal)).normalize();
+		Vec3 binormal = t.cross(normal);
+		for (int j = 0; j < TUBE_SIDES; j++) {
+			float a = 2 * M_PI * j / TUBE_SIDES;
+			Vec3 d = normal * std::cos(a) + binormal * std::sin(a);
+			Vec3 p = points[i] + d * r;
+			vertices.push_back({p.x, p.y, p.z, d.x, d.y, d.z, 0, 0});
+		}
+	}
+	std::vector<uint32_t> indices;
+	indices.reserve((n - 1) * TUBE_SIDES * 6);
+	for (int i = 0; i < n - 1; i++) {
+		for (int j = 0; j < TUBE_SIDES; j++) {
+			uint32_t a = i * TUBE_SIDES + j;
+			uint32_t b = i * TUBE_SIDES + (j + 1) % TUBE_SIDES;
+			uint32_t c = a + TUBE_SIDES;
+			uint32_t d = b + TUBE_SIDES;
+			indices.insert(indices.end(), {a, c, b, b, c, d});
+		}
+	}
+	mesh.upload(vertices, indices);
+}
+
+
+/** A closed cylinder of radius 1 from z = 0 to z = 1. */
+static void buildCylinder(Mesh& mesh) {
+	std::vector<Mesh::Vertex> vertices;
+	std::vector<uint32_t> indices;
+	for (int j = 0; j < PLUG_SIDES; j++) {
+		float a = 2 * M_PI * j / PLUG_SIDES;
+		float c = std::cos(a), s = std::sin(a);
+		vertices.push_back({c, s, 0, c, s, 0, 0, 0});
+		vertices.push_back({c, s, 1, c, s, 0, 0, 0});
+	}
+	for (int j = 0; j < PLUG_SIDES; j++) {
+		uint32_t a = 2 * j, b = 2 * ((j + 1) % PLUG_SIDES);
+		indices.insert(indices.end(), {a, b, a + 1, b, b + 1, a + 1});
+	}
+	// Caps
+	for (float z : {0.f, 1.f}) {
+		uint32_t center = vertices.size();
+		float nz = z > 0 ? 1.f : -1.f;
+		vertices.push_back({0, 0, z, 0, 0, nz, 0, 0});
+		for (int j = 0; j < PLUG_SIDES; j++) {
+			float a = 2 * M_PI * j / PLUG_SIDES;
+			vertices.push_back({std::cos(a), std::sin(a), z, 0, 0, nz, 0, 0});
+		}
+		for (int j = 0; j < PLUG_SIDES; j++)
+			indices.insert(indices.end(), {center, center + 1 + j, center + 1 + (j + 1) % PLUG_SIDES});
+	}
+	mesh.upload(vertices, indices);
+}
+
+
+void ModelRenderer::drawCables(const CableScene* cables, const Mat4& viewProj) {
+	GLint mvpLoc = glGetUniformLocation(program, "uMvp");
+	GLint modelLoc = glGetUniformLocation(program, "uModel");
+	GLint colorLoc = glGetUniformLocation(program, "uColor");
+	glUniform1i(glGetUniformLocation(program, "uUseTex"), 0);
+	// Tubes and plugs are drawn from both sides
+	glDisable(GL_CULL_FACE);
+
+	if (cableMeshes.size() < cables->entries.size())
+		cableMeshes.resize(cables->entries.size());
+	if (!plugMesh.vao)
+		buildCylinder(plugMesh);
+	const RopeParams& params = cables->params;
+
+	size_t i = 0;
+	for (const auto& pair : cables->entries) {
+		const CableScene::Entry& e = pair.second;
+		const Rope& rope = e.rope;
+		if (rope.count() < 4)
+			continue;
+		// Tube from the back of one plug to the back of the other
+		std::vector<Vec3> points(rope.P.begin() + 1, rope.P.end() - 1);
+		buildTube(cableMeshes[i], points, params.radius);
+		Mat4 identity;
+		glUniformMatrix4fv(mvpLoc, 1, GL_FALSE, viewProj.m);
+		glUniformMatrix4fv(modelLoc, 1, GL_FALSE, identity.m);
+		glUniform3f(colorLoc, e.color.r, e.color.g, e.color.b);
+		cableMeshes[i].draw();
+		i++;
+
+		// Plugs: dark cylinders from the tip (in the jack) to the back
+		glUniform3f(colorLoc, 0.12f, 0.12f, 0.13f);
+		int n = rope.count();
+		for (int end = 0; end < 2; end++) {
+			Vec3 tip = rope.P[end == 0 ? 0 : n - 1];
+			Vec3 back = rope.P[end == 0 ? 1 : n - 2];
+			Vec3 axis = back - tip;
+			float length = axis.norm();
+			if (length < 1e-6f)
+				continue;
+			float plugRadius = params.radius * 2.2f;
+			Mat4 model = Mat4::translate(tip) * Mat4::rotate(render3d::Quat::fromTo(Vec3(0, 0, 1), axis)) * Mat4::scale(Vec3(plugRadius, plugRadius, length));
+			Mat4 mvp = viewProj * model;
+			glUniformMatrix4fv(mvpLoc, 1, GL_FALSE, mvp.m);
+			glUniformMatrix4fv(modelLoc, 1, GL_FALSE, model.m);
+			plugMesh.draw();
+		}
+	}
+}
+
+
+void ModelRenderer::render(int width, int height, Layout* layout, PlacementRenderer* textures, const CableScene* cables) {
 	if (!program) {
 		program = render3d::compileProgram(VERT_SRC, FRAG_SRC);
 		if (!program)
@@ -201,6 +331,9 @@ void ModelRenderer::render(int width, int height, Layout* layout, PlacementRende
 	}
 	glDisable(GL_POLYGON_OFFSET_FILL);
 
+	if (cables)
+		drawCables(cables, getViewProjection(width, height));
+
 	// Leave state as NanoVG expects it
 	glBindTexture(GL_TEXTURE_2D, 0);
 	glUseProgram(0);
@@ -211,6 +344,10 @@ void ModelRenderer::render(int width, int height, Layout* layout, PlacementRende
 
 
 void ModelRenderer::destroy() {
+	for (render3d::Mesh& m : cableMeshes)
+		m.destroy();
+	cableMeshes.clear();
+	plugMesh.destroy();
 	for (Face& f : faces)
 		f.mesh.destroy();
 	faces.clear();
