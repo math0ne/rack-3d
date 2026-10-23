@@ -15,7 +15,7 @@ https://github.com/user-attachments/assets/94b58f96-ea41-42f4-a8ec-ca950a1272cf
 
 ### Bloom
 
-Bloom, the spectral flower module. Its petals open and close with each frequency band of the drone, over leaves that sway with the bass:
+Bloom, the spectral flower module (one of the [3D modules](#3d-modules)). Its petals open and close with each frequency band of the drone, over leaves that sway with the bass:
 
 https://github.com/user-attachments/assets/f14c12c9-933c-4818-a129-49bb46f56b65
 
@@ -44,6 +44,99 @@ https://github.com/user-attachments/assets/f14c12c9-933c-4818-a129-49bb46f56b65
 
 - 3D knobs stand over the 2D knobs and turn with them. Knobs are drawn differently by size: silver trimpots, small and medium black knobs, and large gripped knobs with a cap.
 - Slider handles, push buttons, light buttons and toggle switches are also drawn in 3D and follow the module's state.
+
+### 3D modules
+
+Modules can have parts that stand out of the panel in the 3D view: a display that tilts up, a flap, petals, leaves. Two come built in, in the Core plugin, and any plugin can make its own.
+
+#### Bloom
+
+A spectral flower that dances to whatever you feed it.
+
+- **Sound:**
+  - The stereo input is split into six bands: bass, low, low mid, mid, presence and air (90 Hz to 7.2 kHz).
+  - Each band has an envelope follower.
+  - Audio passes through to the outputs untouched, polyphonic too, so Bloom can sit at the end of a patch.
+- **3D:**
+  - Six outer petals, plus six inner ones between them, surround a hub that floats above the panel. Each petal follows one band.
+  - A quiet band's petals lean in and curl over the hub as a closed bud. As the band gets louder they open out, flare their tips and brighten until they glow.
+  - Six toothed, veined leaves underneath droop at the tips, sway, and lift with the bass.
+  - Everything is lit and casts shadows.
+- **2D:** the flat rack shows the flower from above, opening the same way.
+- **Controls:**
+
+  | Control | What it does |
+  |---|---|
+  | SENSE | Input sensitivity, −12 to +30 dB before the bands are measured |
+  | RELEASE | How fast petals close again, 50 ms to 1.5 s |
+  | REST | How open the petals stay in silence |
+  | HUE | The petals' colours; each band follows around the colour wheel |
+  | IN L / IN R | Audio in (R follows L when unpatched) |
+  | OUT L / OUT R | The same audio, passed through |
+  | BAND LEVELS | Each band's level as 0–10 V CV, a six-band envelope follower for the rest of the patch |
+
+  The levels are measured over a 30 dB window, so a full mix still opens some petals more than others.
+
+#### 3D Tester
+
+A small test module for the 3D element system: a display hinged above its knobs, showing a scrolling sine wave.
+- ANGLE swings it from flat on the panel to almost straight out.
+- CYCLES and HUE change the wave.
+- `tests/rack3d/tester3d.vcv` has four at different settings.
+
+#### Making your own: `rack3d::Element3D`
+
+`rack3d::Element3D` is a widget, available to any plugin through `<rack.hpp>`. Add it to your `ModuleWidget` like any other widget and draw its content with NanoVG.
+
+- **In the 2D rack** it draws flat in its box, so the module works everywhere.
+- **In the 3D view** it's taken out of the rack's texture and drawn on its own surface. That surface is hinged to the panel along one edge of the element's box, then swung, turned and bent by the properties below.
+- **Updates:** the content is redrawn every frame, and you can change the properties in `step()`, for instance from a knob or the module's state.
+
+```cpp
+struct Flap : rack3d::Element3D {
+	MyModule* module = NULL;
+
+	Flap() {
+		hinge = HINGE_BOTTOM;  // swings out around its bottom edge
+		cup = 0.6f;            // curved across its width, like a scoop
+	}
+
+	void step() override {
+		// Open the flap with a knob: flat at 0, standing straight out at 1
+		if (module)
+			tilt = module->params[MyModule::OPEN_PARAM].getValue() * M_PI / 2;
+		Element3D::step();
+	}
+
+	void drawContent(const DrawArgs& args) override {
+		// NanoVG drawing in the box's coordinates, as in any widget's draw()
+	}
+};
+
+// In the ModuleWidget's constructor:
+Flap* flap = new Flap;
+flap->module = module;
+flap->box = math::Rect(10, 60, 100, 80);
+addChild(flap);
+```
+
+| Property | What it does |
+|---|---|
+| `hinge` | Which edge of the box is fixed to the panel: `HINGE_BOTTOM`, `HINGE_TOP`, `HINGE_LEFT` or `HINGE_RIGHT` |
+| `tilt` | How far it swings out of the panel, radians: 0 lies flat, π/2 stands straight out, more leans back over the panel |
+| `angle` | Turns it in the panel's plane around the middle of its hinge, radians, clockwise. Use it to point elements in any direction, as Bloom's petals do around a circle |
+| `lift` | Raises the hinge off the panel, in panel pixels. With `tilt` 0 the element floats above the panel, like Bloom's hub |
+| `curl` | Bends it along its length, radians in all: positive toward the side its content faces, negative away |
+| `cup` | Bends it across its width, radians: positive raises the side edges toward its front |
+| `flatIn2D` | Set false to leave it out of the 2D rack, for parts that only make sense in 3D. Draw a 2D stand-in yourself; `rack3d::isDrawingRackTextures()` tells you when not to |
+| `resolution` | Texture pixels per panel pixel in 3D, default 2. Raise it for small text |
+| `drawContent()` | Override to draw the content; the default draws the element's children |
+
+Some details worth knowing:
+- **Rendering:** the element is lit, shadowed, fogged and seen from both sides. Transparent pixels in its drawing are cut out, so its shape can be anything you draw.
+- **Bending:** a bent element (`curl` or `cup`) is drawn as a finely subdivided curved surface with smooth lighting.
+- **Glow:** bright, strongly coloured pixels glow slightly, like LEDs.
+- **Clicks:** in the 3D view they go to the panel behind an element, so the element itself can't be clicked yet. Cables don't collide with elements.
 
 ### Scene
 
@@ -75,16 +168,17 @@ https://github.com/user-attachments/assets/f14c12c9-933c-4818-a129-49bb46f56b65
 
 - `RACK3D_TOOL=dump|preview|devices` runs a tool instead of the normal window. `scripts/rack3d-tool.sh` wraps all three; see `include/rack3d/Tools.hpp`.
   - `dump` writes every module's ports and parameters as JSON, so patches can be written by script.
-  - `preview` loads a patch, checks that every module and cable loaded and sits in a rack, logs each module's output level, and saves screenshots.
+  - `preview` loads a patch, checks that every module and cable loaded and sits in a rack, logs each module's output level, and saves screenshots. With `RACK3D_TOOL_FOCUS=<module slug>` it also turns that module's rack to face the camera, takes close-ups, and logs the module's outputs. This is handy for checking a module's 3D elements.
   - `devices` lists the audio devices.
 - Tests:
   - `tests/rack3d/run.sh` runs the unit tests (layout, cable physics, math).
-  - `tests/rack3d/run-app.sh` runs an in-app self-test of about 140 checks against the live rack, with real modules, rendering and input.
+  - `tests/rack3d/run-app.sh` runs an in-app self-test of about 150 checks against the live rack, with real modules, rendering and input.
 - `examples/chord-drone.vcv` is a six-voice chord drone over all six faces, made with Mutable Instruments (Audible Instruments), Fundamental and Valley Plateau. `scripts/make_chord_drone.py` generates it.
 
 ### Not done yet
 
 - The only model is the cube. Loading other 3D models and placing racks on their flat surfaces is the long-term goal.
+- 3D elements are textured surfaces, flat or bent. Whole mesh faceplates, and elements you can click in 3D, are planned.
 - It has only been built and tested on **Windows** (MSYS2). macOS cannot run it: macOS supports at most OpenGL 4.1. Linux should work with a GL 4.5 driver, but is untested.
 
 ## Download
