@@ -69,19 +69,37 @@ static void setCubeSurfaces(Layout& layout, const std::vector<int>& ids) {
 	};
 	for (int i = 0; i < 6; i++) {
 		Placement* p = layout.getPlacement(ids[i]);
+		math::Vec size = Layout::getRackRect(*p).size;
+		// The rack's longer side spans the face; it's centred along the shorter one
+		float side = std::fmax(size.x, size.y);
 		p->hasSurface = true;
-		p->surface.origin = faces[i][0];
+		p->surface.unitsPerPx = Layout::CUBE_SIZE / side;
 		p->surface.right = faces[i][1];
 		p->surface.down = faces[i][2];
-		p->surface.unitsPerPx = Layout::CUBE_SIZE / Layout::getRackRect(*p).size.x;
+		p->surface.origin = faces[i][0] + p->surface.right * ((side - size.x) / 2 * p->surface.unitsPerPx) + p->surface.down * ((side - size.y) / 2 * p->surface.unitsPerPx);
 	}
 }
 
 
-std::vector<int> Layout::addCube() {
+/** Whether 6 placements are a cube as addCube() allocates it: equal blocks stacked at x = 0, one gutter row apart. */
+static bool isStackedCube(const Layout& layout) {
+	if (layout.placements.size() != 6)
+		return false;
+	math::Vec size = layout.placements[0].gridRect.size;
+	float y = layout.placements[0].gridRect.pos.y;
+	for (const Placement& p : layout.placements) {
+		if (!p.gridRect.size.equals(size) || p.gridRect.pos.x != 0 || p.gridRect.pos.y != y)
+			return false;
+		y += size.y + 1;
+	}
+	return true;
+}
+
+
+std::vector<int> Layout::addCube(int rows, int hp) {
 	std::vector<int> ids;
 	for (int i = 0; i < 6; i++)
-		ids.push_back(addPlacement(CUBE_ROWS, CUBE_HP));
+		ids.push_back(addPlacement(rows, hp));
 	setCubeSurfaces(*this, ids);
 	return ids;
 }
@@ -193,21 +211,15 @@ bool Layout::fromJson(json_t* rack3dJ) {
 		}
 	}
 
-	// Patches saved before surfaces existed: if the blocks are exactly the default cube's, it's the cube
+	// Patches saved before surfaces existed: 6 equal blocks stacked like addCube() makes them are a cube
 	bool anySurface = false;
 	for (const Placement& p : l.placements)
 		anySurface = anySurface || p.hasSurface;
-	if (!anySurface && l.placements.size() == 6) {
-		Layout cube;
-		cube.addCube();
-		bool isCube = true;
+	if (!anySurface && isStackedCube(l)) {
 		std::vector<int> ids;
-		for (size_t i = 0; i < 6; i++) {
-			isCube = isCube && l.placements[i].gridRect.equals(cube.placements[i].gridRect);
-			ids.push_back(l.placements[i].id);
-		}
-		if (isCube)
-			setCubeSurfaces(l, ids);
+		for (const Placement& p : l.placements)
+			ids.push_back(p.id);
+		setCubeSurfaces(l, ids);
 	}
 
 	*this = l;
@@ -349,7 +361,7 @@ int layoutSelfTest() {
 	check(l.nearestPlacement(math::Vec(0, 0)) == NULL, "nearest with no placements is NULL");
 
 	// Cube: six square blocks stacked with gutter rows
-	std::vector<int> ids = l.addCube();
+	std::vector<int> ids = l.addCube(3, 76);
 	check(ids.size() == 6, "addCube adds 6");
 	for (int i = 0; i < 6; i++) {
 		Placement* p = l.getPlacement(ids[i]);
@@ -423,7 +435,7 @@ int layoutSelfTest() {
 	// JSON round-trip
 	{
 		Layout a;
-		a.addCube();
+		a.addCube(3, 76);
 		a.removePlacement(2);
 		json_t* j = a.toJson();
 		Layout b;
@@ -435,7 +447,7 @@ int layoutSelfTest() {
 		check(same, "JSON round-trip keeps ids and blocks");
 		check(b.addPlacement(1, 1) == 6 && b.getPlacement(6)->gridRect.pos.y == 24, "after loading, new ids and blocks continue after the loaded ones");
 		Layout c;
-		c.addCube();
+		c.addCube(3, 76);
 		check(!c.fromJson(NULL), "fromJson(NULL) fails");
 		json_t* bad = json_pack("{s:[{s:i, s:[i,i,i,i]}, {s:i, s:[i,i,i,i]}]}", "placements", "id", 0, "grid", 0, 0, 10, 2, "id", 1, "grid", 0, 2, 10, 2);
 		check(!c.fromJson(bad), "fromJson rejects blocks without a gutter");
@@ -447,7 +459,7 @@ int layoutSelfTest() {
 	{
 		using render3d::Vec3;
 		Layout cube;
-		std::vector<int> faces = cube.addCube();
+		std::vector<int> faces = cube.addCube(3, 76);
 		const Vec3 normals[6] = {Vec3(0, 0, 1), Vec3(1, 0, 0), Vec3(0, 0, -1), Vec3(-1, 0, 0), Vec3(0, 1, 0), Vec3(0, -1, 0)};
 		bool cornersOk = true, normalsOk = true, centersOk = true;
 		for (int i = 0; i < 6; i++) {
@@ -503,10 +515,46 @@ int layoutSelfTest() {
 		json_decref(oldJ);
 	}
 
+	// The default cube: 2-row x 50 HP racks, spanning each face vertically, centred horizontally
+	{
+		using render3d::Vec3;
+		Layout cube;
+		std::vector<int> faces = cube.addCube();
+		const Vec3 normals[6] = {Vec3(0, 0, 1), Vec3(1, 0, 0), Vec3(0, 0, -1), Vec3(-1, 0, 0), Vec3(0, 1, 0), Vec3(0, -1, 0)};
+		bool sizesOk = true, centredOk = true, spanOk = true, insideOk = true;
+		for (int i = 0; i < 6; i++) {
+			const Placement* p = cube.getPlacement(faces[i]);
+			sizesOk = sizesOk && p->gridRect.equals(math::Rect(0, i * 3, 50, 2));
+			const Surface& s = p->surface;
+			math::Vec size = Layout::getRackRect(*p).size;
+			centredOk = centredOk && s.toModel(size.div(2)).isNear(normals[i]);
+			// Top and bottom edges are on the face's edges (2 units apart); left and right are 5 px in
+			spanOk = spanOk && (s.toModel(math::Vec(0, size.y)) - s.toModel(math::Vec(0, 0))).norm() > 2 - 1e-4f;
+			spanOk = spanOk && std::fabs((s.toModel(math::Vec(size.x, 0)) - s.toModel(math::Vec(0, 0))).norm() - 2.f * 750 / 760) < 1e-4f;
+			for (math::Vec c : {math::Vec(0, 0), math::Vec(size.x, size.y)}) {
+				Vec3 q = s.toModel(c);
+				insideOk = insideOk && std::fabs(q.x) <= 1 + 1e-5f && std::fabs(q.y) <= 1 + 1e-5f && std::fabs(q.z) <= 1 + 1e-5f;
+			}
+		}
+		check(sizesOk, "default cube: 6 racks of 50 HP x 2 rows, stacked with gutters");
+		check(centredOk, "default cube: each rack is centred on its face");
+		check(spanOk, "default cube: racks span the face vertically and are 5 px in from each side");
+		check(insideOk, "default cube: racks lie on the cube");
+
+		json_t* j = cube.toJson();
+		size_t pi;
+		json_t* pJ;
+		json_array_foreach(json_object_get(j, "placements"), pi, pJ)
+			json_object_del(pJ, "surface");
+		Layout old;
+		check(old.fromJson(j) && old.placements[0].hasSurface && old.placements[0].surface.origin.isNear(cube.placements[0].surface.origin), "default cube saved without surfaces gets them back");
+		json_decref(j);
+	}
+
 	// Fitting stock patches
 	{
 		Layout cube;
-		cube.addCube();
+		cube.addCube(3, 76);
 		std::vector<math::Vec> pos;
 		auto noOverlap = [&](const std::vector<math::Rect>& boxes) {
 			for (size_t i = 0; i < boxes.size(); i++)

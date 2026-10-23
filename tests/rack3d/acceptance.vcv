@@ -3,22 +3,22 @@
   "rack3d": {
     "version": 1,
     "placements": [
-      {"id": 0, "grid": [0, 0, 76, 3]},
-      {"id": 1, "grid": [0, 4, 76, 3]},
-      {"id": 2, "grid": [0, 8, 76, 3]},
-      {"id": 3, "grid": [0, 12, 76, 3]},
-      {"id": 4, "grid": [0, 16, 76, 3]},
-      {"id": 5, "grid": [0, 20, 76, 3]}
+      {"id": 0, "grid": [0, 0, 50, 2]},
+      {"id": 1, "grid": [0, 3, 50, 2]},
+      {"id": 2, "grid": [0, 6, 50, 2]},
+      {"id": 3, "grid": [0, 9, 50, 2]},
+      {"id": 4, "grid": [0, 12, 50, 2]},
+      {"id": 5, "grid": [0, 15, 50, 2]}
     ]
   },
   "modules": [
     {"id": 1, "plugin": "Fundamental", "model": "VCO", "version": "2.6.5", "pos": [2, 0]},
-    {"id": 3, "plugin": "Fundamental", "model": "LFO", "version": "2.6.5", "pos": [5, 5]},
-    {"id": 2, "plugin": "Fundamental", "model": "VCF", "version": "2.6.5", "pos": [10, 8]},
-    {"id": 5, "plugin": "Fundamental", "model": "ADSR", "version": "2.6.5", "pos": [0, 12]},
-    {"id": 6, "plugin": "Fundamental", "model": "LFO", "version": "2.6.5", "pos": [20, 5]},
-    {"id": 4, "plugin": "Fundamental", "model": "VCA-1", "version": "2.6.5", "pos": [20, 17]},
-    {"id": 7, "plugin": "Core", "model": "AudioInterface2", "version": "2.6.6", "pos": [0, 20]}
+    {"id": 3, "plugin": "Fundamental", "model": "LFO", "version": "2.6.5", "pos": [5, 3]},
+    {"id": 6, "plugin": "Fundamental", "model": "LFO", "version": "2.6.5", "pos": [20, 4]},
+    {"id": 2, "plugin": "Fundamental", "model": "VCF", "version": "2.6.5", "pos": [10, 6]},
+    {"id": 5, "plugin": "Fundamental", "model": "ADSR", "version": "2.6.5", "pos": [0, 9]},
+    {"id": 4, "plugin": "Fundamental", "model": "VCA-1", "version": "2.6.5", "pos": [20, 13]},
+    {"id": 7, "plugin": "Core", "model": "AudioInterface2", "version": "2.6.6", "pos": [0, 15]}
   ],
   "cables": [
     {"id": 1, "outputModuleId": 1, "outputId": 2, "inputModuleId": 2, "inputId": 3, "color": "#f3374b"},

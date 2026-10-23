@@ -44,9 +44,15 @@ static math::Vec gridPos(app::ModuleWidget* mw) {
 }
 
 
+/** Empties the rack and sets its layout to a 3-row x 76 HP cube, which most placement tests are written against
+(those racks fill each face exactly). Tests of the default cube or of loaded patches set their own layout.
+*/
 static void resetRack() {
 	APP->scene->rack->clear();
 	APP->engine->clear();
+	rack3d::Layout* layout = APP->scene->rack->getLayout();
+	layout->clear();
+	layout->addCube(3, 76);
 }
 
 
@@ -124,7 +130,8 @@ static json_t* stockPatchJson() {
 	json_object_set_new(b, "data", json_pack("{s:i}", "width", 10));
 	json_array_append_new(modulesJ, b);
 	json_t* c = coreModuleJson(3, "Blank", 40, 0);
-	json_object_set_new(c, "data", json_pack("{s:i}", "width", 60));
+	// Fits in a 50 HP rack, but the patch as a whole is wider than one
+	json_object_set_new(c, "data", json_pack("{s:i}", "width", 40));
 	json_array_append_new(modulesJ, c);
 	json_array_append_new(modulesJ, coreModuleJson(4, "MIDIToCVInterface", 0, 1));
 	json_array_append_new(modulesJ, coreModuleJson(5, "AudioInterface2", 120, 1));
@@ -857,7 +864,8 @@ int runAppSelfTest() {
 		view->angularVelocity = Vec3();
 		math::Vec center = view->box.size.div(2);
 		math::Vec local;
-		check(view->pickPlacement(center, &local) == 0 && local.minus(math::Vec(570, 570)).norm() < 3, "camera: picking the centre hits the front rack, at its centre");
+		math::Vec frontCenter = rack3d::Layout::getRackRect(*APP->scene->rack->getLayout()->getPlacement(0)).size.div(2);
+		check(view->pickPlacement(center, &local) == 0 && local.minus(frontCenter).norm() < 3, "camera: picking the centre hits the front rack, at its centre");
 		check(view->pickPlacement(math::Vec(5, 5)) == -1, "camera: picking a corner hits nothing");
 		view->renderer.rotation = Quat::fromAxisAngle(Vec3(0, 1, 0), -M_PI / 2);
 		check(view->pickPlacement(center) == 1, "camera: turned 90 degrees, the centre hits the right rack");
@@ -938,7 +946,8 @@ int runAppSelfTest() {
 			APP->window->step();
 		check(textures->getScale(0) > front, "textures: zooming in raises the front rack's resolution");
 		const PlacementRenderer::Target* t0 = textures->getTarget(0);
-		check(t0 && t0->size.x == std::ceil(1140 * textures->getScale(0)), "textures: the front texture is rendered at that resolution");
+		float frontWidth = rack3d::Layout::getRackRect(*APP->scene->rack->getLayout()->getPlacement(0)).size.x;
+		check(t0 && t0->size.x == std::ceil(frontWidth * textures->getScale(0)), "textures: the front texture is rendered at that resolution");
 		view->renderer.distance = 6;
 
 		// Frame time: 2D view vs 3D view, no frame limit, same patch

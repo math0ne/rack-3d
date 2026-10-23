@@ -55,9 +55,11 @@ struct Placement {
 Pure math: owns no widgets and knows nothing about modules.
 */
 struct Layout {
-	/** A cube face: 3 rows × 76 HP is exactly square (1140 × 1140 px). */
-	static constexpr int CUBE_ROWS = 3;
-	static constexpr int CUBE_HP = 76;
+	/** The default rack on a cube face: 2 rows × 50 HP (750 × 760 px), centred on the square face with a 5 px
+	margin left and right. (3 rows × 76 HP would fill a face exactly; that's what Phase 2 patches use.)
+	*/
+	static constexpr int CUBE_ROWS = 2;
+	static constexpr int CUBE_HP = 50;
 	/** The cube is 2 model units wide, centred on the origin. */
 	static constexpr float CUBE_SIZE = 2.f;
 
@@ -77,9 +79,10 @@ struct Layout {
 	/** Adds 6 cube-face placements, with surfaces, in the order front, right, back, left, top, bottom.
 	Model axes: +x right, +y up, +z toward the viewer. Side faces read upright; the top face's upper edge is at
 	the back and the bottom face's at the front, so both read upright when the cube tips toward them.
+	Each rack is `rows` × `hp`; its longer side spans the face and it's centred along the shorter one.
 	Returns their ids in face order.
 	*/
-	std::vector<int> addCube();
+	std::vector<int> addCube(int rows = CUBE_ROWS, int hp = CUBE_HP);
 
 	Placement* getPlacement(int id);
 	/** The placement whose block fully contains `gridBox`, or NULL if none does (e.g. it's in a gutter or straddles two blocks). */
