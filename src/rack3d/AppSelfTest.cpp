@@ -6,8 +6,11 @@
 #include <system.hpp>
 #include <app/Scene.hpp>
 #include <engine/Engine.hpp>
+#include <rack3d/PlacementRenderer.hpp>
+#include <stb_image_write.h>
 #include <plugin.hpp>
 #include <patch.hpp>
+#include <asset.hpp>
 #include <context.hpp>
 
 
@@ -127,6 +130,31 @@ static std::map<int64_t, math::Vec> modulePositions() {
 	for (app::ModuleWidget* mw : APP->scene->rack->getModules())
 		positions[mw->module->id] = gridPos(mw);
 	return positions;
+}
+
+
+/** Reads a pixel of a placement texture, (x, y) in NanoVG's top-left coordinates. */
+static NVGcolor readPixel(const PlacementRenderer::Target* t, int x, int y) {
+	uint8_t px[4] = {};
+	nvgluBindFramebuffer(t->fb);
+	glReadPixels(x, (int) t->size.y - 1 - y, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, px);
+	nvgluBindFramebuffer(NULL);
+	return nvgRGBA(px[0], px[1], px[2], px[3]);
+}
+
+
+/** Saves a placement texture as a PNG, top row first. */
+static void saveTexture(const PlacementRenderer::Target* t, const std::string& path) {
+	int w = t->size.x, h = t->size.y;
+	std::vector<uint8_t> pixels(w * h * 4);
+	nvgluBindFramebuffer(t->fb);
+	glReadPixels(0, 0, w, h, GL_RGBA, GL_UNSIGNED_BYTE, pixels.data());
+	nvgluBindFramebuffer(NULL);
+	// GL rows go bottom-up
+	std::vector<uint8_t> flipped(pixels.size());
+	for (int y = 0; y < h; y++)
+		std::memcpy(&flipped[y * w * 4], &pixels[(h - 1 - y) * w * 4], w * 4);
+	stbi_write_png(path.c_str(), w, h, 4, flipped.data(), w * 4);
 }
 
 
@@ -407,7 +435,8 @@ int runAppSelfTest() {
 		app::ModuleWidget* a = rack->getModule(1);
 		app::ModuleWidget* b = rack->getModule(2);
 		check(a && b && gridPos(b).x - gridPos(a).x == 10 && gridPos(b).y == gridPos(a).y, "load: touching modules stay touching");
-		check(a && b && a->module->rightExpander.module == b->module, "load: ...so the expander pair still works");
+		// updateExpanders() sets the ids; the engine resolves them to Module pointers on its own thread
+		check(a && b && a->module->rightExpander.moduleId == b->module->id, "load: ...so the expander pair still works");
 	}
 
 	// Patch files: save -> load round-trip
@@ -442,6 +471,44 @@ int runAppSelfTest() {
 		check(e && gridPos(e).equals(math::Vec(120, 1)), "off: a stock patch loads with stock positions");
 	}
 	settings::placementsEnabled = true;
+
+	// Placement textures
+	resetRack();
+	{
+		addBlank(10, 0, 0);
+		addBlank(10, 5, 13);
+		PlacementRenderer r;
+		r.scale = 0.5f;
+		while (glGetError() != GL_NO_ERROR) {}
+		// Panel caches render one per frame before the window loop starts, so render a few "frames"
+		for (int i = 0; i < 20; i++) {
+			// Like a real frame: step (e.g. Blank sizes its panel in step()), then render
+			rack->step();
+			APP->window->fbCount() = 0;
+			r.render(APP->window->vg, rack);
+		}
+		check(glGetError() == GL_NO_ERROR, "render: no GL errors");
+		check(r.targets.size() == 6, "render: one texture per placement");
+		const PlacementRenderer::Target* t0 = r.getTarget(0);
+		const PlacementRenderer::Target* t3 = r.getTarget(3);
+		check(t0 && t0->size.equals(math::Vec(570, 570)), "render: a cube face texture is 1140 px x scale");
+		if (t0 && t3) {
+			// Blank at face 0 (0, 0): 10 HP wide, so its centre is at (75, 190) rack px
+			NVGcolor module0 = readPixel(t0, 75 * 0.5, 190 * 0.5);
+			NVGcolor empty0 = readPixel(t0, 900 * 0.5, 190 * 0.5);
+			check(module0.a == 1.f && module0.r > 0.8f, "render: a Blank shows up light grey on face 0");
+			check(empty0.a == 1.f && std::fabs(empty0.r - module0.r) > 0.1f, "render: empty rack space looks different");
+			// Blank at grid (5, 13) is face 3 (rows 12-14), local row 1: centre (150, 570) rack px
+			NVGcolor module3 = readPixel(t3, 150 * 0.5, 570 * 0.5);
+			check(module3.a == 1.f && module3.r > 0.8f, "render: a Blank on face 3 shows up in face 3's texture");
+			saveTexture(t0, asset::user("placement0.png"));
+			saveTexture(t3, asset::user("placement3.png"));
+		}
+		APP->window->fbCount() = 0;
+		r.render(APP->window->vg, rack);
+		check(APP->window->fbCount() == 0, "render: rendering again at the same scale redraws no panel caches");
+		r.clear();
+	}
 
 	quietWarnings = false;
 	resetRack();

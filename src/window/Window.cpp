@@ -23,6 +23,7 @@
 #include <settings.hpp>
 #include <plugin.hpp> // used in Window::screenshot
 #include <system.hpp> // used in Window::screenshot
+#include <rack3d/PlacementRenderer.hpp>
 
 #if defined ARCH_LIN
 	// For XkbGetState for directly getting mod keys
@@ -398,6 +399,9 @@ Window::~Window() {
 
 	// nvgDeleteClone(fbVg);
 
+	// Rack 3D: placement textures are framebuffers of `vg`
+	rack3d::destroyRenderer();
+
 	nvgDeleteGL3(vg);
 	nvgDeleteGL3(fbVg);
 
@@ -501,6 +505,9 @@ void Window::step() {
 		// Step scene
 		APP->scene->step();
 		// t2 = system::getTime();
+
+		// Rack 3D: render rack placement textures, if something asked for them this frame
+		rack3d::renderRequested();
 
 		// Render scene
 		bool visible = glfwGetWindowAttrib(win, GLFW_VISIBLE) && !glfwGetWindowAttrib(win, GLFW_ICONIFIED);
