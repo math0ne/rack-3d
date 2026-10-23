@@ -5,6 +5,7 @@
 #include <rack3d/Layout.hpp>
 #include <rack3d/settings.hpp>
 #include <render3d/math.hpp>
+#include <rack3d/CableSim.hpp>
 #include <settings.hpp>
 
 
@@ -55,6 +56,7 @@ int main() {
 	int failures = 0;
 	failures += rack::rack3d::layoutSelfTest();
 	failures += rack::render3d::mathSelfTest();
+	failures += rack::rack3d::cableSimSelfTest();
 	failures += settingsTest();
 	std::printf("rack3d tests: %d failure(s)\n", failures);
 	rack::logger::destroy();
