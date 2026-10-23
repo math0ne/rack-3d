@@ -4,18 +4,16 @@
 
 It is an unofficial, hobby fork. It is not made, endorsed or supported by VCV. "VCV" and "VCV Rack" are trademarks of VCV; please send questions about this fork here, not to VCV Support.
 
-![The chord drone patch on the Rack 3D cube, in the concrete plaza](docs/screens/cube.png)
+https://github.com/user-attachments/assets/b0bee9ec-bca1-4d68-baea-93b003220d22
+
+*The chord drone patch (`examples/chord-drone.vcv`) playing, sound on. The cube spins in the concrete plaza with its cables swinging and the sun's shadows moving across it, then the view zooms in to turn the 3D knobs on the Plaits voices.*
 
 | | |
 |---|---|
 | ![Zoomed out: the cube over its plinth, sun shadows across the plaza](docs/screens/plaza.png) | ![Close up: 3D knobs, plugs, glowing cables and their shadows](docs/screens/closeup.png) |
 | ![From below: the bottom face, cables hanging under the cube](docs/screens/cube-below.png) | ![The 2D rack: each rack is a block of rows](docs/screens/rack-2d.png) |
 
-### In motion
-
-The chord drone patch (`examples/chord-drone.vcv`) playing. The cube spins in the plaza with its cables swinging and the sun's shadows moving across it, then the view zooms in to turn the 3D knobs on the Plaits voices. Sound on:
-
-https://github.com/user-attachments/assets/b0bee9ec-bca1-4d68-baea-93b003220d22
+### Bloom
 
 Bloom, the spectral flower module. Its petals open and close with each frequency band of the drone, over leaves that sway with the bass:
 
