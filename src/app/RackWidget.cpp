@@ -750,6 +750,42 @@ static bool isPlaceable(rack3d::Layout& layout, math::Rect box) {
 	return layout.placementOf(gridBox) != NULL;
 }
 
+/** Rack 3D: snapshot of module positions taken before a move that shoves neighbours (force, squeeze),
+so the move can be undone if it pushed any module out of its placement. Does nothing while placements are off.
+*/
+struct ShoveGuard {
+	RackWidget* rack;
+	bool active;
+	std::vector<std::pair<widget::Widget*, math::Vec>> positions;
+
+	ShoveGuard(RackWidget* rack) : rack(rack), active(rack3d::settings::placementsEnabled) {
+		if (!active)
+			return;
+		for (widget::Widget* w : rack->internal->moduleContainer->children)
+			positions.push_back(std::make_pair(w, w->box.pos));
+	}
+
+	/** Whether `mw` and every module that moved are inside a placement. */
+	bool isValid(ModuleWidget* mw) {
+		if (!active)
+			return true;
+		rack3d::Layout& layout = *rack->getLayout();
+		if (!isPlaceable(layout, mw->box))
+			return false;
+		for (const auto& pair : positions) {
+			widget::Widget* w = pair.first;
+			if (!w->box.pos.equals(pair.second) && !isPlaceable(layout, w->box))
+				return false;
+		}
+		return true;
+	}
+
+	void restore() {
+		for (const auto& pair : positions)
+			pair.first->box.pos = pair.second;
+	}
+};
+
 bool RackWidget::requestModulePos(ModuleWidget* mw, math::Vec pos) {
 	math::Rect mwBox = math::Rect(pos, mw->box.size);
 	if (!isPlaceable(internal->layout, mwBox))
@@ -841,6 +877,8 @@ static bool compareModuleLeft(ModuleWidget* a, ModuleWidget* b) {
 }
 
 void RackWidget::setModulePosForce(ModuleWidget* mw, math::Vec pos) {
+	ShoveGuard guard(this);
+
 	math::Rect mwBox;
 	mwBox.pos = ((pos - RACK_OFFSET) / RACK_GRID_SIZE).round();
 	mwBox.size = mw->getGridSize();
@@ -894,6 +932,12 @@ void RackWidget::setModulePosForce(ModuleWidget* mw, math::Vec pos) {
 		cursor.x = mw2Box.getRight();
 	}
 
+	// Rack 3D: never shove a module out of its placement
+	if (!guard.isValid(mw)) {
+		guard.restore();
+		setModulePosNearest(mw, pos);
+	}
+
 	updateExpanders();
 }
 
@@ -911,6 +955,8 @@ void RackWidget::setModulePosSqueeze(ModuleWidget* mw, math::Vec pos) {
 }
 
 void RackWidget::squeezeModulePos(ModuleWidget* mw, math::Vec pos) {
+	ShoveGuard guard(this);
+
 	math::Rect mwBox;
 	mwBox.pos = ((pos - RACK_OFFSET) / RACK_GRID_SIZE).round();
 	mwBox.size = mw->getGridSize();
@@ -967,6 +1013,12 @@ void RackWidget::squeezeModulePos(ModuleWidget* mw, math::Vec pos) {
 
 	// Commit new pos
 	mw->setGridPosition(mwBox.pos);
+
+	// Rack 3D: never shove a module out of its placement
+	if (!guard.isValid(mw)) {
+		guard.restore();
+		setModulePosNearest(mw, pos);
+	}
 }
 
 void RackWidget::unsqueezeModulePos(ModuleWidget* mw) {

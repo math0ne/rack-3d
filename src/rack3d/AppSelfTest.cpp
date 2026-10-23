@@ -55,6 +55,27 @@ static bool isInPlacement(app::ModuleWidget* mw) {
 }
 
 
+static bool allInPlacements() {
+	for (app::ModuleWidget* mw : APP->scene->rack->getModules()) {
+		if (!isInPlacement(mw))
+			return false;
+	}
+	return true;
+}
+
+
+static bool noOverlaps() {
+	std::vector<app::ModuleWidget*> mws = APP->scene->rack->getModules();
+	for (size_t i = 0; i < mws.size(); i++) {
+		for (size_t j = i + 1; j < mws.size(); j++) {
+			if (mws[i]->box.intersects(mws[j]->box))
+				return false;
+		}
+	}
+	return true;
+}
+
+
 int runAppSelfTest() {
 	int failures = 0;
 	auto check = [&](bool ok, const char* what) {
@@ -151,6 +172,66 @@ int runAppSelfTest() {
 		rack->setSelectionPosNearest(math::Vec(60, 0) * RACK_GRID_SIZE);
 		check(isInPlacement(a) && isInPlacement(b), "on: selection pushed past the edge stays in a placement");
 		rack->deselectAll();
+	}
+
+	// Force (Ctrl-drag): shoving within the placement is allowed
+	resetRack();
+	{
+		addBlank(10, 0, 0);
+		addBlank(10, 10, 0);
+		app::ModuleWidget* c = addBlank(10, 60, 0);
+		app::ModuleWidget* x = addBlank(10, 0, 1);
+		rack->setModulePosForce(x, gridPx(55, 0));
+		check(gridPos(x).equals(math::Vec(55, 0)) && gridPos(c).x == 65, "on: force shoves a neighbour within the placement");
+		check(allInPlacements() && noOverlaps(), "on: ...leaving everything placed, no overlaps");
+	}
+
+	// Force: a shove past the edge is undone and falls back to nearest
+	resetRack();
+	{
+		std::vector<app::ModuleWidget*> row;
+		for (int x = 0; x <= 60; x += 10)
+			row.push_back(addBlank(10, x, 0));
+		app::ModuleWidget* x = addBlank(10, 0, 1);
+		rack->setModulePosForce(x, gridPx(30, 0));
+		check(allInPlacements() && noOverlaps(), "on: force past the edge leaves everything placed, no overlaps");
+		bool rowUnmoved = true;
+		for (size_t i = 0; i < row.size(); i++)
+			rowUnmoved &= gridPos(row[i]).equals(math::Vec(i * 10, 0));
+		check(rowUnmoved, "on: ...and the row it would have shoved is untouched");
+	}
+
+	// Squeeze: fits into a gap
+	resetRack();
+	{
+		addBlank(10, 0, 0);
+		addBlank(10, 20, 0);
+		app::ModuleWidget* x = addBlank(10, 0, 1);
+		rack->squeezeModulePos(x, gridPx(12, 0));
+		check(gridPos(x).equals(math::Vec(10, 0)), "on: squeeze into a gap");
+		check(allInPlacements() && noOverlaps(), "on: ...leaving everything placed, no overlaps");
+	}
+
+	// Squeeze: a shove past the edge is undone and falls back to nearest
+	resetRack();
+	{
+		for (int x = 0; x <= 60; x += 10)
+			addBlank(10, x, 0);
+		app::ModuleWidget* x = addBlank(10, 0, 1);
+		rack->squeezeModulePos(x, gridPx(35, 0));
+		check(allInPlacements() && noOverlaps(), "on: squeeze past the edge leaves everything placed, no overlaps");
+	}
+
+	// Placements off: force shoves past HP 76 like stock
+	settings::placementsEnabled = false;
+	resetRack();
+	{
+		std::vector<app::ModuleWidget*> row;
+		for (int x = 0; x <= 60; x += 10)
+			row.push_back(addBlank(10, x, 0));
+		app::ModuleWidget* x = addBlank(10, 0, 1);
+		rack->setModulePosForce(x, gridPx(30, 0));
+		check(gridPos(x).equals(math::Vec(30, 0)) && gridPos(row.back()).x == 70, "off: force shoves past HP 76 like stock");
 	}
 
 	resetRack();
