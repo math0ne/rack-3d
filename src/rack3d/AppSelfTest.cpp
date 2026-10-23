@@ -1094,6 +1094,32 @@ int runAppSelfTest() {
 		check(view->renderer.distance < d, "camera: scrolling up zooms in");
 		view->renderer.distance = 6;
 
+		// Auto-orbit: waits while the view is in use, then turns the model by itself; using the view pauses it
+		{
+			bool savedOrbit = settings::autoOrbit;
+			float savedSpeed = settings::orbitSpeed;
+			settings::autoOrbit = true;
+			settings::orbitSpeed = 4.f;
+			view->angularVelocity = Vec3();
+			view->noteInteraction();
+			APP->window->step();
+			check(!view->isOrbiting(), "orbit: waits after you use the view");
+			view->idleTime = ModelView::ORBIT_RESUME_SECONDS + ModelView::ORBIT_EASE_SECONDS;
+			Quat start = view->renderer.rotation;
+			for (int i = 0; i < 30; i++)
+				APP->window->step();
+			check(view->isOrbiting() && view->renderer.rotation.angleTo(start) > 0.01f, "orbit: once idle, the model turns by itself");
+			APP->event->handleScroll(screen, math::Vec(0, -1));
+			Quat paused = view->renderer.rotation;
+			for (int i = 0; i < 10; i++)
+				APP->window->step();
+			check(!view->isOrbiting() && view->renderer.rotation.angleTo(paused) < 1e-4f, "orbit: scrolling pauses it");
+			settings::autoOrbit = savedOrbit;
+			settings::orbitSpeed = savedSpeed;
+			view->renderer.distance = 6;
+			view->renderer.rotation = Quat();
+		}
+
 		// Double-click a rack to face it: from a three-quarter view, find a point on the right rack and double-click it
 		view->angularVelocity = Vec3();
 		view->renderer.rotation = Quat::fromAxisAngle(Vec3(0, 1, 0), -0.6f);

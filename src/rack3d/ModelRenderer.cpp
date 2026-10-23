@@ -59,6 +59,8 @@ uniform sampler2DShadow uShadowNear;
 uniform sampler2DShadow uShadowFar;
 uniform float uShadowTexel;
 uniform float uFogStart;
+// Overall brightness, applied to everything before gamma
+uniform float uExposure;
 out vec4 outColor;
 
 // Hazy late sun, a soft key from the camera side so panels stay readable, and sky / ground ambient
@@ -69,7 +71,7 @@ const vec3 SKY_AMBIENT = vec3(0.3, 0.35, 0.45);
 const vec3 GROUND_AMBIENT = vec3(0.11, 0.1, 0.09);
 
 vec3 toLinear(vec3 c) { return pow(max(c, 0.0), vec3(2.2)); }
-vec3 toGamma(vec3 c) { return pow(max(c, 0.0), vec3(1.0 / 2.2)); }
+vec3 toGamma(vec3 c) { return pow(max(c * uExposure, 0.0), vec3(1.0 / 2.2)); }
 
 float hash(vec3 p) {
 	p = fract(p * 0.3183099 + 0.1);
@@ -196,7 +198,7 @@ void main() {
 	if (uMaterial == 4) {
 		float facing = abs(dot(normalize(vNormal), viewDir));
 		float glow = pow(facing, 2.0) * uEmissive;
-		outColor = vec4(toLinear(uColor) * glow, 0.0);
+		outColor = vec4(toLinear(uColor) * glow * uExposure, 0.0);
 		return;
 	}
 	vec3 base;
@@ -870,6 +872,7 @@ void ModelRenderer::render(int width, int height, Layout* layout, PlacementRende
 	glUniform1f(glGetUniformLocation(program, "uFloorY"), environment::FLOOR_Y);
 	glUniform1f(glGetUniformLocation(program, "uShadowTexel"), 1.f / SHADOW_SIZE);
 	glUniform1f(glGetUniformLocation(program, "uFogStart"), distance + 2.f);
+	glUniform1f(glGetUniformLocation(program, "uExposure"), exposure);
 	glUniformMatrix4fv(glGetUniformLocation(program, "uLightNear"), 1, GL_FALSE, lightNear.m);
 	glUniformMatrix4fv(glGetUniformLocation(program, "uLightFar"), 1, GL_FALSE, lightFar.m);
 	// Shadow samplers must point at depth textures with comparison even when unused

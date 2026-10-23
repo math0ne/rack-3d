@@ -25,6 +25,13 @@ extern bool environment;
 extern float fog;
 /** How much the 3D cables glow: 0 is plain cables. */
 extern float cableGlow;
+/** Overall brightness of the 3D view: 1 is the renderer's full light. */
+extern float brightness;
+/** The 3D view slowly turns and tips the model by itself, pausing while you use it (F8). */
+extern bool autoOrbit;
+/** Auto-orbit speed: 1 is one turn every ORBIT_TURN_SECONDS. */
+extern float orbitSpeed;
+static const float ORBIT_TURN_SECONDS = 90.f;
 
 /** Cable physics defaults: the cable sandbox's tuning, at Rack scale (a ~4 mm cable on a 2-unit cube). */
 RopeParams defaultCableParams();

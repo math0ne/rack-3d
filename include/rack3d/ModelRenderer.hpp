@@ -103,6 +103,8 @@ struct ModelRenderer {
 	float fog = 1.f;
 	/** How much the cables light up and haze around themselves; 0 is plain cables. */
 	float cableGlow = 0.f;
+	/** Overall brightness (linear multiplier before gamma); 1 is unchanged. */
+	float exposure = 1.f;
 	/** Direction toward the sun (world space): low on the left and a little in front, so the model has a warm sunlit
 	side and a cool shaded one, and the structures cast long shadows across the plaza.
 	*/

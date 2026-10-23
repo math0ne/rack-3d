@@ -32,6 +32,22 @@ struct ModelView : widget::OpaqueWidget {
 	/** Rack texture resolution range, in texture pixels per rack pixel. */
 	static constexpr float MIN_TEXTURE_SCALE = 1 / 8.f;
 	static constexpr float MAX_TEXTURE_SCALE = 2.f;
+	/** Auto-orbit: pauses for this long after you click, drag, scroll or type in the view, then eases back in over
+	ORBIT_EASE_SECONDS. While orbiting, the model tips up and down by ORBIT_TILT radians every ORBIT_TILT_TURNS turns,
+	so the top and bottom come round too.
+	*/
+	static constexpr float ORBIT_RESUME_SECONDS = 4.f;
+	static constexpr float ORBIT_EASE_SECONDS = 3.f;
+	static constexpr float ORBIT_TILT = 0.85f;
+	static constexpr float ORBIT_TILT_TURNS = 1.37f;
+	/** Seconds since you last used the view. */
+	float idleTime = 0;
+
+	/** Pauses auto-orbit (any use of the view). */
+	void noteInteraction();
+	bool isOrbiting() const {
+		return orbiting;
+	}
 
 	~ModelView();
 	void step() override;
@@ -89,6 +105,10 @@ private:
 	bool mouseInView = false;
 	math::Vec lastButtonPos;
 	bool snapping = false;
+	/** Auto-orbit: the rotation it started from, and how far it has turned (radians) since. */
+	bool orbiting = false;
+	render3d::Quat orbitFrom;
+	float orbitAngle = 0;
 	render3d::Quat snapFrom;
 	render3d::Quat snapTo;
 	float snapTime = 0;

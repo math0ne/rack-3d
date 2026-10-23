@@ -14,6 +14,9 @@ float spinDamping = DEFAULT_SPIN_DAMPING;
 bool environment = true;
 float fog = 1.f;
 float cableGlow = 0.35f;
+float brightness = 0.55f;
+bool autoOrbit = false;
+float orbitSpeed = 1.f;
 
 
 RopeParams defaultCableParams() {
@@ -53,6 +56,9 @@ json_t* toJson() {
 	json_object_set_new(rootJ, "environment", json_boolean(environment));
 	json_object_set_new(rootJ, "fog", json_real(fog));
 	json_object_set_new(rootJ, "cableGlow", json_real(cableGlow));
+	json_object_set_new(rootJ, "brightness", json_real(brightness));
+	json_object_set_new(rootJ, "autoOrbit", json_boolean(autoOrbit));
+	json_object_set_new(rootJ, "orbitSpeed", json_real(orbitSpeed));
 	return rootJ;
 }
 
@@ -107,6 +113,15 @@ void fromJson(json_t* rootJ) {
 	json_t* cableGlowJ = json_object_get(rootJ, "cableGlow");
 	if (cableGlowJ)
 		cableGlow = std::max(0.f, std::min((float) json_number_value(cableGlowJ), 1.f));
+	json_t* brightnessJ = json_object_get(rootJ, "brightness");
+	if (brightnessJ)
+		brightness = std::max(0.2f, std::min((float) json_number_value(brightnessJ), 1.5f));
+	json_t* autoOrbitJ = json_object_get(rootJ, "autoOrbit");
+	if (autoOrbitJ)
+		autoOrbit = json_boolean_value(autoOrbitJ);
+	json_t* orbitSpeedJ = json_object_get(rootJ, "orbitSpeed");
+	if (orbitSpeedJ)
+		orbitSpeed = std::max(0.1f, std::min((float) json_number_value(orbitSpeedJ), 4.f));
 }
 
 

@@ -54,7 +54,22 @@ void ModelView::step() {
 		if (u >= 1)
 			snapping = false;
 	}
+	else if (settings::autoOrbit && !dragging && idleTime >= ORBIT_RESUME_SECONDS) {
+		// Turn about the vertical axis while tipping toward and away from the camera, starting from wherever the model
+		// was left, easing in so it never jumps
+		if (!orbiting) {
+			orbiting = true;
+			orbitFrom = renderer.rotation;
+			orbitAngle = 0;
+			angularVelocity = render3d::Vec3();
+		}
+		float ease = math::clamp((idleTime - ORBIT_RESUME_SECONDS) / ORBIT_EASE_SECONDS, 0.f, 1.f);
+		orbitAngle += 2 * M_PI / settings::ORBIT_TURN_SECONDS * settings::orbitSpeed * ease * ease * dt;
+		float tilt = ORBIT_TILT * std::sin(orbitAngle / ORBIT_TILT_TURNS);
+		renderer.rotation = (render3d::Quat::fromAxisAngle(render3d::Vec3(1, 0, 0), tilt) * render3d::Quat::fromAxisAngle(render3d::Vec3(0, 1, 0), orbitAngle) * orbitFrom).normalize();
+	}
 	else if (!dragging) {
+		orbiting = false;
 		float speed = angularVelocity.norm();
 		if (speed > 1e-4f) {
 			render3d::Quat dq = render3d::Quat::fromAxisAngle(angularVelocity, speed * dt);
@@ -65,6 +80,10 @@ void ModelView::step() {
 			angularVelocity = render3d::Vec3();
 		}
 	}
+
+	idleTime += dt;
+	if (!settings::autoOrbit)
+		orbiting = false;
 
 	// Cables follow the model's motion this frame, and loose ends follow the mouse
 	cables.update(dt, renderer.rotation, scene->rack, scene->rack->getLayout(), getPointer());
@@ -159,7 +178,14 @@ void ModelView::onHover(const HoverEvent& e) {
 
 
 
+void ModelView::noteInteraction() {
+	idleTime = 0;
+	orbiting = false;
+}
+
+
 void ModelView::onButton(const ButtonEvent& e) {
+	noteInteraction();
 	if (e.action == GLFW_PRESS)
 		lastButtonPos = e.pos;
 	if (forwardToRack(this, e, &widget::Widget::onButton)) {
@@ -174,6 +200,7 @@ void ModelView::onButton(const ButtonEvent& e) {
 
 
 void ModelView::onHoverKey(const HoverKeyEvent& e) {
+	noteInteraction();
 	if (!forwardToRack(this, e, &widget::Widget::onHoverKey))
 		OpaqueWidget::onHoverKey(e);
 }
@@ -201,6 +228,7 @@ void ModelView::onDoubleClick(const DoubleClickEvent& e) {
 
 
 void ModelView::onDragStart(const DragStartEvent& e) {
+	noteInteraction();
 	dragging = true;
 	snapping = false;
 	angularVelocity = render3d::Vec3();
@@ -209,6 +237,7 @@ void ModelView::onDragStart(const DragStartEvent& e) {
 
 
 void ModelView::onDragMove(const DragMoveEvent& e) {
+	noteInteraction();
 	// Screen x turns around the vertical axis, screen y tilts around the horizontal one (world axes)
 	math::Vec d = e.mouseDelta;
 	render3d::Vec3 axisAngle(d.y * DRAG_RADIANS_PER_PX, d.x * DRAG_RADIANS_PER_PX, 0);
@@ -235,6 +264,7 @@ void ModelView::onDragEnd(const DragEndEvent& e) {
 
 
 void ModelView::onHoverScroll(const HoverScrollEvent& e) {
+	noteInteraction();
 	// A module under the mouse may take it (e.g. knob scrolling); otherwise zoom
 	if (forwardToRack(this, e, &widget::Widget::onHoverScroll) && e.isConsumed())
 		return;
@@ -413,6 +443,7 @@ void ModelView::renderModel() {
 	renderer.environment = settings::environment;
 	renderer.fog = settings::fog;
 	renderer.cableGlow = settings::cableGlow;
+	renderer.exposure = settings::brightness;
 	renderer.render(width, height, APP->scene->rack->getLayout(), getRenderer(), &cables, &knobs, &parts);
 }
 
@@ -455,7 +486,7 @@ void ModelView::draw(const DrawArgs& args) {
 	nvgFontSize(args.vg, 13);
 	nvgFillColor(args.vg, nvgRGBA(0xc0, 0xc0, 0xc0, 0xa0));
 	nvgTextAlign(args.vg, NVG_ALIGN_LEFT | NVG_ALIGN_BOTTOM);
-	nvgText(args.vg, 12, box.size.y - 10, "3D view (F7) · drag to spin · scroll to zoom · double-click a rack to face it · F6: tiles", NULL);
+	nvgText(args.vg, 12, box.size.y - 10, "3D view (F7) · drag to spin · scroll to zoom · double-click a rack to face it · F8: auto-orbit · F6: tiles", NULL);
 
 	OpaqueWidget::draw(args);
 }
