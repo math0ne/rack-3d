@@ -4,6 +4,9 @@
 #include <rack3d/Placement.hpp>
 #include <app/RackWidget.hpp>
 #include <app/CableWidget.hpp>
+#include <app/ParamWidget.hpp>
+#include <app/PortWidget.hpp>
+#include <widget/event.hpp>
 #include <color.hpp>
 #include <system.hpp>
 #include <app/Scene.hpp>
@@ -678,6 +681,75 @@ int runAppSelfTest() {
 		json_decref(offJ);
 		settings::placementsEnabled = true;
 	}
+
+	// Interactive tiles: real mouse input through EventState
+	resetRack();
+	try {
+		APP->patch->load(asset::system("tests/rack3d/acceptance.vcv"));
+	}
+	catch (Exception& e) {
+		WARN("%s", e.what());
+	}
+	setTilesViewShown(true);
+	for (int i = 0; i < 10; i++)
+		APP->window->step();
+	{
+		TilesView* view = getTilesView();
+		// Rack coordinates -> screen (root widget) coordinates
+		auto screenPos = [&](math::Vec rackPos) {
+			math::Vec pos;
+			view->fromRackPos(rackPos, &pos);
+			return pos.plus(view->box.pos);
+		};
+		auto drag = [&](math::Vec from, math::Vec to) {
+			APP->event->handleHover(from, math::Vec());
+			APP->event->handleButton(from, GLFW_MOUSE_BUTTON_LEFT, GLFW_PRESS, 0);
+			math::Vec last = from;
+			for (int i = 1; i <= 20; i++) {
+				math::Vec p = from.crossfade(to, i / 20.f);
+				APP->event->handleHover(p, p.minus(last));
+				last = p;
+				APP->window->step();
+			}
+			APP->event->handleButton(to, GLFW_MOUSE_BUTTON_LEFT, GLFW_RELEASE, 0);
+			APP->window->step();
+		};
+
+		// Knob: drag VCO's frequency knob up
+		app::ModuleWidget* vco = rack->getModule(1);
+		if (vco && !vco->getParams().empty()) {
+			app::ParamWidget* knob = vco->getParams()[0];
+			float before = knob->getParamQuantity()->getValue();
+			math::Vec p = screenPos(knob->getRelativeOffset(knob->box.size.div(2), rack));
+			drag(p, p.plus(math::Vec(0, -40)));
+			check(knob->getParamQuantity()->getValue() != before, "tiles input: dragging a knob in a tile turns it");
+		}
+
+		// Module: drag the VCF from the back tile to the bottom tile
+		app::ModuleWidget* vcf = rack->getModule(2);
+		if (vcf) {
+			math::Vec grab = vcf->box.pos.plus(math::Vec(3, 190));
+			math::Rect bottom = rack3d::Layout::getRackRect(*rack->getLayout()->getPlacement(5));
+			drag(screenPos(grab), screenPos(bottom.pos.plus(math::Vec(40 * app::RACK_GRID_WIDTH, 380 + 190))));
+			rack3d::Placement* p = rack->getLayout()->placementOf(vcf->getGridBox());
+			check(p && p->id == 5, "tiles input: a module can be dragged from one tile to another");
+		}
+
+		// Cable: from the LFO's triangle output (right tile) to the VCO's FM input (front tile)
+		app::ModuleWidget* lfo = rack->getModule(3);
+		if (lfo && vco) {
+			size_t n = rack->getCables().size();
+			app::PortWidget* out = lfo->getOutput(1);
+			app::PortWidget* in = vco->getInput(1);
+			drag(screenPos(out->getRelativeOffset(out->box.size.div(2), rack)), screenPos(in->getRelativeOffset(in->box.size.div(2), rack)));
+			bool connected = false;
+			for (app::CableWidget* cw : rack->getCables())
+				connected = connected || (cw->isComplete() && cw->outputPort == out && cw->inputPort == in);
+			check(rack->getCables().size() == n + 1 && connected, "tiles input: a cable can be patched from one tile to another");
+		}
+		check(glGetError() == GL_NO_ERROR, "tiles input: no GL errors");
+	}
+	setTilesViewShown(false);
 
 	quietWarnings = false;
 	resetRack();
