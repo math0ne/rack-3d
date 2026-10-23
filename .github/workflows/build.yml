@@ -15,6 +15,12 @@ on:
 permissions:
   contents: read
 
+env:
+  # The Rack version the app reports. The Makefile reads it from upstream VCV's v2.x git tags, which this repository
+  # doesn't have, so set it here: the upstream release Rack 3D is based on. The Library checks it against plugins'
+  # minimum Rack versions, so it must be a real Rack version (Rack 3D's own version is the release tag).
+  RACK_VERSION: "2.6.6"
+
 # One build per tag or branch at a time; a second one waits rather than cancelling the first
 concurrency:
   group: build-${{ github.ref }}
