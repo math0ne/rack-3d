@@ -91,7 +91,7 @@ You need a GPU and driver with OpenGL 4.5.
 
 Rack 3D keeps its settings, plugins and autosave in its own user folder, `%LOCALAPPDATA%\Rack3D`. It never reads or moves stock VCV Rack's `Rack2` folder, so the two can be installed side by side. Only one of them can run at a time, as with two copies of upstream Rack. Log in from the Library menu to install plugins.
 
-Every push to `main` also builds the same zip, as an artifact of the [Build workflow](https://github.com/math0ne/rack-3d/actions/workflows/build.yml).
+Releases are built by GitHub Actions from version tags; see [Releases](#releases) below.
 
 ## Building
 
@@ -152,24 +152,26 @@ make -C plugins/Fundamental -j$(nproc)
 
 `DIST_HTML=` skips the HTML copies of the docs, which need a `markdown` tool. Upstream's `make package` NSIS installer is not used, because it would install over VCV Rack 2 Free.
 
-### Continuous integration and releases
+### Releases
 
-`.github/workflows/build.yml` runs on GitHub Actions for every push and pull request. It:
+Builds run on GitHub Actions (`.github/workflows/build.yml`) only for releases, not for every push. A build:
 - builds on Windows in MSYS2, caching the built dependencies,
 - runs the unit tests,
-- uploads `Rack3D-<commit>-win-x64.zip` as an artifact.
+- packages `Rack3D-<version>-win-x64.zip`.
 
-Pushing a version tag also publishes the zip as a GitHub release:
+To release, run the self-tests, push your commits to `main`, then tag. `scripts/release.sh` checks that the working tree is clean and the commit is already on GitHub's `main`, shows the changes since the last release, and pushes an annotated tag:
 
 ```bash
-git tag v0.1.0
+bash scripts/release.sh --dry-run v0.1.0
 ```
 
 ```bash
-git push origin v0.1.0
+bash scripts/release.sh v0.1.0
 ```
 
-A tag with a hyphen, such as `v0.2.0-beta.1`, is marked as a pre-release.
+The tag starts the build, which publishes the zip as a GitHub release with generated notes. A version with a hyphen, such as `v0.2.0-beta.1`, is published as a pre-release. Rack 3D's versions are its own and count from `v0.1.0`; the upstream `v2.x` tags in a VCV Rack checkout are ignored.
+
+To build without releasing, use **Run workflow** on the [Build workflow's page](https://github.com/math0ne/rack-3d/actions/workflows/build.yml). The zip is kept as an artifact of that run.
 
 The in-app self-test needs a real OpenGL 4.5 GPU, which GitHub's runners don't have, so run it locally before tagging.
 

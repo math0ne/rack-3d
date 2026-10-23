@@ -1,5 +1,7 @@
-# Builds Rack 3D for Windows on every push and pull request, runs the unit tests, and packages a portable zip.
-# Pushing a tag like v0.1.0 also publishes that zip as a GitHub release.
+# Builds Rack 3D for Windows, runs the unit tests, and packages a portable zip. Ordinary pushes don't build:
+# - Pushing a version tag (v1.2.3, or v1.2.3-beta.1 for a pre-release) builds and publishes a GitHub release.
+#   scripts/release.sh makes and pushes the tag.
+# - "Run workflow" on the Actions tab builds any branch and keeps the zip as an artifact, without releasing.
 #
 # The in-app self-test (tests/rack3d/run-app.sh) needs an OpenGL 4.5 GPU, which GitHub's runners don't have, so run it
 # locally before tagging.
@@ -7,19 +9,16 @@ name: Build
 
 on:
   push:
-    branches: [main]
     tags: ['v*']
-  pull_request:
   workflow_dispatch:
 
 permissions:
   contents: read
 
-# Pushes to a branch queue behind its running build (so the slow first dependency build can finish and be cached);
-# a pull request's newer push replaces its older run
+# One build per tag or branch at a time; a second one waits rather than cancelling the first
 concurrency:
   group: build-${{ github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  cancel-in-progress: false
 
 jobs:
   windows:
