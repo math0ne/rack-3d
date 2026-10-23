@@ -7,9 +7,9 @@ cd "$(dirname "$0")/../.."
 mkdir -p build/tests
 g++ -std=c++11 -g -O1 -Wall -Wextra -Wno-unused-parameter -D_USE_MATH_DEFINES \
 	-Iinclude -Idep/include \
-	tests/rack3d/layout_test.cpp \
+	tests/rack3d/rack3d_test.cpp \
 	-L. -lRack \
-	-o build/tests/layout_test.exe
+	-o build/tests/rack3d_test.exe
 
 # libRack.dll lives in the Rack directory
-PATH="$PWD:$PATH" ./build/tests/layout_test.exe
+PATH="$PWD:$PATH" ./build/tests/rack3d_test.exe

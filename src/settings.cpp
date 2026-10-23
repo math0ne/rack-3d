@@ -9,6 +9,7 @@
 #include <patch.hpp>
 #include <asset.hpp>
 #include <system.hpp>
+#include <rack3d/settings.hpp>
 
 
 namespace rack {
@@ -190,6 +191,8 @@ json_t* toJson() {
 	json_object_set_new(rootJ, "squeezeModules", json_boolean(squeezeModules));
 
 	json_object_set_new(rootJ, "preferDarkPanels", json_boolean(preferDarkPanels));
+
+	json_object_set_new(rootJ, "rack3d", rack3d::settings::toJson());
 
 	json_object_set_new(rootJ, "frameRateLimit", json_real(frameRateLimit));
 
@@ -417,6 +420,8 @@ void fromJson(json_t* rootJ) {
 	json_t* preferDarkPanelsJ = json_object_get(rootJ, "preferDarkPanels");
 	if (preferDarkPanelsJ)
 		preferDarkPanels = json_boolean_value(preferDarkPanelsJ);
+
+	rack3d::settings::fromJson(json_object_get(rootJ, "rack3d"));
 
 	// Legacy setting in Rack <2.2
 	json_t* frameSwapIntervalJ = json_object_get(rootJ, "frameSwapInterval");

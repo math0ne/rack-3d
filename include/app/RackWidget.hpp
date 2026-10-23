@@ -14,6 +14,10 @@
 
 
 namespace rack {
+namespace rack3d {
+struct Layout;
+} // namespace rack3d
+
 namespace app {
 
 
@@ -27,6 +31,9 @@ struct RackWidget : widget::OpaqueWidget {
 
 	PRIVATE RackWidget();
 	PRIVATE ~RackWidget();
+
+	/** Rack 3D: the rack placements dividing this rack's grid. */
+	PRIVATE rack3d::Layout* getLayout();
 
 	void step() override;
 	void draw(const DrawArgs& args) override;

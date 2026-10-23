@@ -17,6 +17,7 @@
 #include <asset.hpp>
 #include <patch.hpp>
 #include <helpers.hpp>
+#include <rack3d/Layout.hpp>
 
 
 namespace rack {
@@ -37,6 +38,9 @@ struct RackWidget::Internal {
 	math::Vec selectionEnd;
 	std::set<ModuleWidget*> selectedModules;
 	std::map<widget::Widget*, math::Vec> moduleOldPositions;
+
+	/** Rack 3D placements. Only enforced while rack3d::settings::placementsEnabled is on. */
+	rack3d::Layout layout;
 };
 
 
@@ -126,11 +130,18 @@ RackWidget::RackWidget() {
 
 	internal->cableContainer = new CableContainer;
 	addChild(internal->cableContainer);
+
+	// Until patches store their own placements, every rack is a cube
+	internal->layout.addCube();
 }
 
 RackWidget::~RackWidget() {
 	clear();
 	delete internal;
+}
+
+rack3d::Layout* RackWidget::getLayout() {
+	return &internal->layout;
 }
 
 void RackWidget::step() {
