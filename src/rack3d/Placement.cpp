@@ -7,6 +7,7 @@
 #include <app/Scene.hpp>
 #include <context.hpp>
 #include <string.hpp>
+#include <history.hpp>
 
 
 namespace rack {
@@ -32,6 +33,48 @@ bool rejectIfStray(app::ModuleWidget* mw) {
 	// Also removes and deletes its engine::Module
 	delete mw;
 	warnNoRoom();
+	return true;
+}
+
+
+std::string getPlacementName(int index) {
+	static const char* const cubeFaceNames[] = {"front", "right", "back", "left", "top", "bottom"};
+	Layout* layout = APP->scene->rack->getLayout();
+	if (index < 0 || index >= (int) layout->placements.size())
+		return "";
+	std::string name = string::f("Rack %d", layout->placements[index].id);
+	if (layout->placements.size() == 6)
+		name += string::f(" (%s)", cubeFaceNames[index]);
+	return name;
+}
+
+
+bool moveModuleToPlacement(app::ModuleWidget* mw, int placementId) {
+	app::RackWidget* rack = APP->scene->rack;
+	Layout* layout = rack->getLayout();
+	Placement* p = layout->getPlacement(placementId);
+	if (!p)
+		return false;
+	if (layout->placementOf(mw->getGridBox()) == p)
+		return true;
+
+	rack->updateModuleOldPositions();
+	math::Vec oldPos = mw->getPosition();
+	rack->setModulePosNearest(mw, Layout::getRackRect(*p).pos);
+	if (layout->placementOf(mw->getGridBox()) != p) {
+		// The nearest free spot was in another rack, or there was none
+		mw->setPosition(oldPos);
+		rack->updateExpanders();
+		warnNoRoom();
+		return false;
+	}
+
+	history::ComplexAction* h = rack->getModuleDragAction();
+	h->name = "move module to rack";
+	if (!h->isEmpty())
+		APP->history->push(h);
+	else
+		delete h;
 	return true;
 }
 

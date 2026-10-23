@@ -189,11 +189,53 @@ void RackWidget::step() {
 	Widget::step();
 }
 
+/** Rack 3D: darkens everything outside the racks, and outlines and labels each rack. */
+static void drawPlacementChrome(RackWidget* rack, const widget::Widget::DrawArgs& args) {
+	rack3d::Layout* layout = rack->getLayout();
+	NVGcontext* vg = args.vg;
+
+	// The visible area, with every rack cut out
+	nvgBeginPath(vg);
+	nvgRect(vg, RECT_ARGS(args.clipBox));
+	for (const rack3d::Placement& p : layout->placements) {
+		nvgRect(vg, RECT_ARGS(rack3d::Layout::getRackRect(p)));
+		nvgPathWinding(vg, NVG_HOLE);
+	}
+	nvgFillColor(vg, nvgRGBAf(0, 0, 0, 0.6));
+	nvgFill(vg);
+
+	// Labels stay readable when zoomed out, up to a third of a gutter row's height
+	float t[6];
+	nvgCurrentTransform(vg, t);
+	float zoom = t[3];
+	float fontSize = math::clamp(16.f / zoom, 28.f, RACK_GRID_HEIGHT / 3);
+	nvgFontFaceId(vg, APP->window->uiFont->handle);
+	nvgFontSize(vg, fontSize);
+	nvgTextAlign(vg, NVG_ALIGN_LEFT | NVG_ALIGN_BOTTOM);
+	for (size_t i = 0; i < layout->placements.size(); i++) {
+		const rack3d::Placement& p = layout->placements[i];
+		math::Rect r = rack3d::Layout::getRackRect(p);
+		nvgBeginPath(vg);
+		nvgRect(vg, RECT_ARGS(r));
+		nvgStrokeColor(vg, nvgRGBAf(1, 1, 1, 0.3));
+		nvgStrokeWidth(vg, 3);
+		nvgStroke(vg);
+
+		std::string label = rack3d::getPlacementName(i) + string::f(" · %d HP × %d rows", (int) p.gridRect.size.x, (int) p.gridRect.size.y);
+		nvgFillColor(vg, nvgRGBAf(1, 1, 1, 0.6));
+		nvgText(vg, r.pos.x + 4, r.pos.y - fontSize / 3, label.c_str(), NULL);
+	}
+}
+
 void RackWidget::draw(const DrawArgs& args) {
 	float b = settings::rackBrightness;
 
 	// Draw rack rails and modules
 	Widget::draw(args);
+
+	// Rack 3D: show where the racks are
+	if (rack3d::settings::placementsEnabled)
+		drawPlacementChrome(this, args);
 
 	// Draw translucent dark rectangle
 	if (b < 1.f) {

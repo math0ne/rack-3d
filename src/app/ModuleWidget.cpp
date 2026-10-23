@@ -18,6 +18,8 @@
 #include <string.hpp>
 #include <componentlibrary.hpp>
 #include <rack3d/Placement.hpp>
+#include <rack3d/Layout.hpp>
+#include <rack3d/settings.hpp>
 
 
 namespace rack {
@@ -1127,6 +1129,25 @@ void ModuleWidget::createContextMenu() {
 			return;
 		APP->scene->rackScroll->zoomToBound(weakThis->getBox());
 	}));
+
+	// Rack 3D: move to another rack placement
+	if (rack3d::settings::placementsEnabled) {
+		menu->addChild(createSubmenuItem("Move to rack", "", [=](ui::Menu* menu) {
+			if (!weakThis)
+				return;
+			rack3d::Layout* layout = APP->scene->rack->getLayout();
+			rack3d::Placement* current = layout->placementOf(weakThis->getGridBox());
+			for (size_t i = 0; i < layout->placements.size(); i++) {
+				int id = layout->placements[i].id;
+				bool isCurrent = current && current->id == id;
+				menu->addChild(createMenuItem(rack3d::getPlacementName(i), isCurrent ? CHECKMARK_STRING : "", [=]() {
+					if (!weakThis)
+						return;
+					rack3d::moveModuleToPlacement(weakThis, id);
+				}, isCurrent));
+			}
+		}));
+	}
 
 	appendContextMenu(menu);
 }

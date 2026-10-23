@@ -540,6 +540,54 @@ int runAppSelfTest() {
 		check(!isTilesViewShown() && APP->scene->rackScroll->isVisible(), "tiles: hiding the view brings back the 2D rack");
 	}
 
+	// Move to rack, with undo/redo
+	resetRack();
+	APP->history->clear();
+	{
+		app::ModuleWidget* a = addBlank(10, 30, 1);
+		math::Vec start = gridPos(a);
+		bool allMoved = true;
+		for (int id = 1; id < 6; id++) {
+			bool ok = moveModuleToPlacement(a, id);
+			rack3d::Placement* p = rack->getLayout()->placementOf(a->getGridBox());
+			allMoved = allMoved && ok && p && p->id == id;
+		}
+		check(allMoved, "move: a module can be moved to each rack");
+		math::Vec end = gridPos(a);
+		APP->history->undo();
+		check(!gridPos(a).equals(end) && isInPlacement(a), "move: undo moves it back one step");
+		for (int i = 0; i < 4; i++)
+			APP->history->undo();
+		check(gridPos(a).equals(start), "move: undoing every move restores where it started");
+		for (int i = 0; i < 5; i++)
+			APP->history->redo();
+		check(gridPos(a).equals(end), "move: redo replays every move");
+
+		// No room in the target rack: nothing moves
+		resetRack();
+		for (int x = 0; x + 4 <= 76; x += 4) {
+			for (int y = 4; y < 7; y++)
+				addBlank(4, x, y);
+		}
+		app::ModuleWidget* b = addBlank(10, 0, 0);
+		int warnings = noRoomWarnings;
+		check(!moveModuleToPlacement(b, 1) && gridPos(b).equals(math::Vec(0, 0)) && noRoomWarnings == warnings + 1, "move: a full rack leaves the module where it was, with a warning");
+	}
+
+	// Chrome in the 2D view: screenshot for a visual check
+	resetRack();
+	{
+		addBlank(10, 0, 0);
+		addBlank(20, 30, 5);
+		addBlank(10, 200, 1);
+		APP->scene->rackScroll->setZoom(0.25);
+		APP->scene->rackScroll->setGridOffset(math::Vec(-2, -1));
+		for (int i = 0; i < 20; i++)
+			APP->window->step();
+		check(glGetError() == GL_NO_ERROR, "chrome: no GL errors");
+		APP->window->screenshot(asset::user("chrome.png"));
+	}
+
 	quietWarnings = false;
 	resetRack();
 	settings::placementsEnabled = oldEnabled;

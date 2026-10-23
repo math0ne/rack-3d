@@ -1,4 +1,6 @@
 #pragma once
+#include <string>
+
 #include <common.hpp>
 
 
@@ -23,6 +25,14 @@ void warnNoRoom();
 
 /** Tells the user that `count` modules of a loaded patch didn't fit in any rack. */
 void warnOverflow(int count);
+
+/** A placement's display name, e.g. "Rack 4 (top)". `index` is its position in Layout::placements. */
+std::string getPlacementName(int index);
+
+/** Moves a module into a placement (the free spot nearest its top-left corner) and pushes undo history.
+Does nothing if it's already there. If there's no room, leaves the module where it was, tells the user and returns false.
+*/
+bool moveModuleToPlacement(app::ModuleWidget* mw, int placementId);
 
 /** Self-test support: when true, warnNoRoom() only counts instead of opening a dialog. */
 extern bool quietWarnings;
