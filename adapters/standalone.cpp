@@ -24,6 +24,7 @@
 #include <library.hpp>
 #include <network.hpp>
 #include <rack3d/AppSelfTest.hpp>
+#include <rack3d/Tools.hpp>
 
 #include <getopt.h>
 #include <unistd.h> // for getopt
@@ -259,9 +260,12 @@ int main(int argc, char* argv[]) {
 	const char* selfTestEnv = std::getenv("RACK3D_SELFTEST");
 	bool selfTest = selfTestEnv && selfTestEnv[0] && selfTestEnv[0] != '0';
 	int selfTestFailures = 0;
+	// Rack 3D: RACK3D_TOOL=dump|preview|devices runs a developer tool instead of the window (see rack3d/Tools.hpp)
+	const char* toolEnv = std::getenv("RACK3D_TOOL");
+	std::string tool = toolEnv ? toolEnv : "";
 
 	// Initialize patch
-	if (selfTest) {
+	if (selfTest || !tool.empty()) {
 		// No patch: loading one could open dialogs (e.g. missing plugins) that block the test
 	}
 	else if (logger::wasTruncated() && osdialog_message(OSDIALOG_INFO, OSDIALOG_YES_NO, string::translate("standalone.crashed").c_str())) {
@@ -276,6 +280,11 @@ int main(int argc, char* argv[]) {
 	// Run context
 	if (selfTest) {
 		selfTestFailures = rack3d::runAppSelfTest();
+	}
+	else if (!tool.empty()) {
+		rack3d::selfTestRunning = true;
+		selfTestFailures = rack3d::runTool(tool);
+		rack3d::selfTestRunning = false;
 	}
 	else if (settings::headless) {
 		printf("Press enter to exit.\n");
