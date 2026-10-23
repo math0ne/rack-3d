@@ -1034,6 +1034,82 @@ int runAppSelfTest() {
 			drag(empty, empty.plus(math::Vec(60, 0)));
 			check(view->renderer.rotation.angleTo(r0) > 0.2f && rack->getSelected().empty(), "3d input: dragging empty rack space spins the model");
 		}
+		// Moving cables in 3D: carry a new cable from the LFO (right rack) over the front rack, onto a port, then
+		// pick it up again and drop it in space
+		view->angularVelocity = Vec3();
+		view->renderer.rotation = Quat::fromAxisAngle(Vec3(1, 0, 0), 0.45f) * Quat::fromAxisAngle(Vec3(0, 1, 0), -0.6f);
+		for (int i = 0; i < 3; i++)
+			APP->window->step();
+		app::ModuleWidget* lfo2 = rack->getModule(6);
+		app::ModuleWidget* adsr = rack->getModule(5);
+		app::ModuleWidget* lfoA = rack->getModule(3);
+		CableScene& scene3d = view->cables;
+		auto moveTo = [&](math::Vec& at, math::Vec to, int frames) {
+			for (int i = 1; i <= frames; i++) {
+				math::Vec p = at.crossfade(to, (float) i / frames);
+				APP->event->handleHover(p, p.minus(at));
+				at = p;
+				APP->window->step();
+			}
+		};
+		auto ropeOf = [&](app::CableWidget* cw) -> Rope* {
+			auto it = scene3d.entries.find(cw);
+			return it != scene3d.entries.end() ? &it->second.rope : NULL;
+		};
+		if (lfo2 && adsr && lfoA) {
+			app::PortWidget* out = lfoA->getOutput(2);
+			app::PortWidget* in = lfo2->getInput(0);
+			math::Vec at = center3d(out);
+			APP->event->handleHover(at, math::Vec());
+			APP->event->handleButton(at, GLFW_MOUSE_BUTTON_LEFT, GLFW_PRESS, 0);
+			// Over empty space on the front rack
+			math::Rect front = rack3d::Layout::getRackRect(*rack->getLayout()->getPlacement(0));
+			moveTo(at, screenOf(front.pos.plus(math::Vec(40 * app::RACK_GRID_WIDTH, 380 + 190))), 20);
+			std::vector<app::CableWidget*> incomplete = rack->getIncompleteCables();
+			app::CableWidget* carried = incomplete.empty() ? NULL : incomplete.front();
+			Rope* rope = carried ? ropeOf(carried) : NULL;
+			check(rope != NULL, "move cables: a cable being dragged has a rope in 3D");
+			if (rope) {
+				Pointer p = view->getPointerAt(at.minus(view->box.pos));
+				render3d::Vec3 expected = view->renderer.rotation.rotate(p.hit + p.hitNormal * scene3d.hoverHeight);
+				check(p.onRack && rope->P[rope->count() - 1].isNear(expected, 0.02f), "move cables: its loose plug floats over the rack under the mouse");
+				APP->window->screenshot(asset::user("carry.png"));
+			}
+			// Onto the LFO's input: the plug hovers just off that jack
+			moveTo(at, center3d(in), 20);
+			rope = carried ? ropeOf(carried) : NULL;
+			if (rope) {
+				PortPose pose;
+				getPortPose(in, rack, rack->getLayout(), &pose);
+				render3d::Vec3 expected = view->renderer.rotation.rotate(pose.position + pose.normal * scene3d.snapHeight);
+				check(rope->P[rope->count() - 1].isNear(expected, 0.02f), "move cables: over a port, the plug lines up with its jack");
+			}
+			render3d::Vec3 midBefore = rope ? rope->P[rope->count() / 2] : render3d::Vec3();
+			APP->event->handleButton(at, GLFW_MOUSE_BUTTON_LEFT, GLFW_RELEASE, 0);
+			APP->window->step();
+			app::CableWidget* placed = rack->getCable(out, in);
+			Rope* placedRope = placed ? ropeOf(placed) : NULL;
+			check(placed && placed->isComplete() && placedRope, "move cables: dropping it on the port plugs it in");
+			check(placedRope && (placedRope->P[placedRope->count() / 2] - midBefore).norm() < 0.2f, "move cables: the rope carries on when it's plugged in (no jump)");
+
+			// Pick it up again by its input plug and drop it in empty space: it's deleted
+			for (int i = 0; i < 30; i++)
+				APP->window->step();
+			at = center3d(in);
+			APP->event->handleHover(at, math::Vec());
+			APP->event->handleButton(at, GLFW_MOUSE_BUTTON_LEFT, GLFW_PRESS, 0);
+			moveTo(at, view->box.pos.plus(math::Vec(30, 30)), 20);
+			check(placed && !placed->isComplete() && ropeOf(placed) == placedRope, "move cables: unplugging keeps the same rope, its end now held");
+			Rope* held = ropeOf(placed);
+			bool finite = held != NULL;
+			for (int i = 0; held && i < held->count(); i++)
+				finite = finite && std::isfinite(held->P[i].x) && std::isfinite(held->P[i].y);
+			check(finite && held && held->ends[1].dangling, "move cables: off the model, the held plug dangles");
+			APP->event->handleButton(at, GLFW_MOUSE_BUTTON_LEFT, GLFW_RELEASE, 0);
+			APP->window->step();
+			check(!rack->getCable(out, in) && !ropeOf(placed), "move cables: dropping it in space deletes the cable and its rope");
+		}
+
 		view->angularVelocity = Vec3();
 		view->renderer.rotation = Quat();
 

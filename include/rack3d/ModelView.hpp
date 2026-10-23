@@ -61,6 +61,12 @@ struct ModelView : widget::OpaqueWidget {
 	bool toRackPos(math::Vec pos, math::Vec* rackPos);
 	/** Rack coordinates -> this widget's coordinates. Returns false if not inside a placement with a surface. */
 	bool fromRackPos(math::Vec rackPos, math::Vec* pos);
+	/** Where the mouse points in 3D (for the loose ends of cables being dragged). Invalid if it's not over the view
+	this frame.
+	*/
+	Pointer getPointer();
+	/** Where a point of this widget points in 3D. */
+	Pointer getPointerAt(math::Vec pos);
 	/** Turns the model so a placement faces the camera, upright, over SNAP_SECONDS. Stops any spin. */
 	void snapToPlacement(int placementId);
 	bool isSnapping() const {
@@ -70,6 +76,12 @@ struct ModelView : widget::OpaqueWidget {
 private:
 	bool dragging = false;
 	double lastDragMoveTime = 0;
+	/** Last mouse position over this view, from hover and drag-hover events. Those arrive every frame while the mouse
+	is over the view (Window polls the cursor each frame), so `mouseInView` is cleared after each step(). Leave events
+	can't be used: forwarding makes rack widgets the hovered ones.
+	*/
+	math::Vec mousePos;
+	bool mouseInView = false;
 	math::Vec lastButtonPos;
 	bool snapping = false;
 	render3d::Quat snapFrom;

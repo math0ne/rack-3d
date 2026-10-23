@@ -39,7 +39,40 @@ static RopeEnd plugEnd(const PortPose& pose, Quat rotation) {
 }
 
 
-void CableScene::update(float dt, Quat rotation, app::RackWidget* rack, Layout* layout) {
+/** The loose end of a cable being dragged, in world space. `dangling` ends hang off the rope. */
+static RopeEnd heldEnd(app::CableWidget* cw, const Pointer& pointer, Quat rotation, app::RackWidget* rack, Layout* layout, const BoxCollider& box, float hoverHeight, float snapHeight, const RopeEnd* previous) {
+	RopeEnd e;
+	// Over a port it would plug into: hover just off that jack, pointing in
+	app::PortWidget* snap = cw->outputPort ? cw->hoveredInputPort : cw->hoveredOutputPort;
+	PortPose pose;
+	if (snap && getPortPose(snap, rack, layout, &pose)) {
+		e.tip = rotation.rotate(pose.position + pose.normal * snapHeight);
+		e.dir = rotation.rotate(pose.normal);
+		return e;
+	}
+	// Over a rack: float off it, pointing in
+	if (pointer.valid && pointer.onRack) {
+		e.tip = rotation.rotate(pointer.hit + pointer.hitNormal * hoverHeight);
+		e.dir = rotation.rotate(pointer.hitNormal);
+		return e;
+	}
+	// In space: where the mouse ray crosses the plane through the model's centre facing the camera, outside it
+	if (pointer.valid && std::fabs(pointer.rayDir.z) > 1e-6f) {
+		float t = -pointer.rayOrigin.z / pointer.rayDir.z;
+		e.tip = pointer.rayOrigin + pointer.rayDir * t;
+		box.pushOut(e.tip, hoverHeight);
+		e.dangling = true;
+		return e;
+	}
+	// Mouse elsewhere: stay put
+	if (previous)
+		return *previous;
+	e.dangling = true;
+	return e;
+}
+
+
+void CableScene::update(float dt, Quat rotation, app::RackWidget* rack, Layout* layout, const Pointer& pointer) {
 	if (!hasLastRotation) {
 		lastRotation = rotation;
 		hasLastRotation = true;
@@ -66,31 +99,48 @@ void CableScene::update(float dt, Quat rotation, app::RackWidget* rack, Layout* 
 			box.halfSize = Vec3(std::fmax(-lo.x, hi.x), std::fmax(-lo.y, hi.y), std::fmax(-lo.z, hi.z));
 	}
 
-	// Sync with the rack's cables: add new ones, drop removed ones. Incomplete cables (being dragged) aren't
-	// simulated yet.
+	// Sync with the rack's cables, including ones being dragged: add new ones, drop removed ones.
+	// Grabbing a plugged cable and dropping one on a port keep the same CableWidget, so the rope carries on.
 	for (auto& pair : entries)
 		pair.second.seen = false;
 	struct Live {
 		Entry* entry;
+		app::CableWidget* cw;
+		/** Which ends are in ports; the other is held. */
+		bool hasOut, hasIn;
 		PortPose out, in;
 	};
 	std::vector<Live> live;
+	box.rotation = rotation;
 	for (app::CableWidget* cw : rack->getCables()) {
-		if (!cw->isComplete() || !cw->cable)
+		Live l;
+		l.cw = cw;
+		l.hasOut = cw->outputPort && getPortPose(cw->outputPort, rack, layout, &l.out);
+		l.hasIn = cw->inputPort && getPortPose(cw->inputPort, rack, layout, &l.in);
+		// Needs at least one end on a rack
+		if (!l.hasOut && !l.hasIn)
 			continue;
-		PortPose out, in;
-		if (!getPortPose(cw->outputPort, rack, layout, &out) || !getPortPose(cw->inputPort, rack, layout, &in))
+		if (cw->isComplete() && !(l.hasOut && l.hasIn))
 			continue;
+
+		auto it = entries.find(cw);
+		bool fresh = it == entries.end();
 		Entry& e = entries[cw];
-		bool fresh = e.cableId != cw->cable->id;
-		e.cableId = cw->cable->id;
+		// A new widget at a freed one's address: neither plugged port matches
+		if (!fresh && !(cw->outputPort && cw->outputPort == e.outputPort) && !(cw->inputPort && cw->inputPort == e.inputPort))
+			fresh = true;
+		e.cableId = cw->cable ? cw->cable->id : -1;
+		e.outputPort = cw->outputPort;
+		e.inputPort = cw->inputPort;
 		e.color = cw->color;
 		e.seen = true;
+		l.entry = &e;
 		if (fresh) {
-			box.rotation = rotation;
-			e.rope.reset(plugEnd(out, rotation), plugEnd(in, rotation), box, params);
+			RopeEnd a = l.hasOut ? plugEnd(l.out, rotation) : heldEnd(cw, pointer, rotation, rack, layout, box, hoverHeight, snapHeight, NULL);
+			RopeEnd b = l.hasIn ? plugEnd(l.in, rotation) : heldEnd(cw, pointer, rotation, rack, layout, box, hoverHeight, snapHeight, NULL);
+			e.rope.reset(a, b, box, params);
 		}
-		live.push_back({&e, out, in});
+		live.push_back(l);
 	}
 	for (auto it = entries.begin(); it != entries.end();) {
 		if (!it->second.seen)
@@ -114,11 +164,12 @@ void CableScene::update(float dt, Quat rotation, app::RackWidget* rack, Layout* 
 		for (int s = 1; s <= steps; s++) {
 			box.rotation = Quat::slerp(lastRotation, rotation, (float) s / steps);
 			for (Live& l : live) {
-				l.entry->rope.ends[0] = plugEnd(l.out, box.rotation);
-				l.entry->rope.ends[1] = plugEnd(l.in, box.rotation);
+				Rope& rope = l.entry->rope;
+				rope.ends[0] = l.hasOut ? plugEnd(l.out, box.rotation) : heldEnd(l.cw, pointer, box.rotation, rack, layout, box, hoverHeight, snapHeight, &rope.ends[0]);
+				rope.ends[1] = l.hasIn ? plugEnd(l.in, box.rotation) : heldEnd(l.cw, pointer, box.rotation, rack, layout, box, hoverHeight, snapHeight, &rope.ends[1]);
 				if (s == 1)
-					l.entry->rope.updateTargetLength(box, params);
-				l.entry->rope.step(stepSeconds, box, params);
+					rope.updateTargetLength(box, params);
+				rope.step(stepSeconds, box, params);
 			}
 		}
 	}

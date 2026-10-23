@@ -59,8 +59,9 @@ void ModelView::step() {
 		}
 	}
 
-	// Cables follow the model's motion this frame
-	cables.update(dt, renderer.rotation, scene->rack, scene->rack->getLayout());
+	// Cables follow the model's motion this frame, and loose ends follow the mouse
+	cables.update(dt, renderer.rotation, scene->rack, scene->rack->getLayout(), getPointer());
+	mouseInView = false;
 
 	requestAfterRender([this]() {
 		renderModel();
@@ -108,10 +109,46 @@ static bool forwardToRack(ModelView* view, const TEvent& e, void (widget::Widget
 }
 
 
+Pointer ModelView::getPointer() {
+	if (!mouseInView)
+		return Pointer();
+	return getPointerAt(mousePos);
+}
+
+
+Pointer ModelView::getPointerAt(math::Vec pos) {
+	using render3d::Vec3;
+	Pointer p;
+	if (box.size.x <= 0 || box.size.y <= 0)
+		return p;
+	p.valid = true;
+	float x = 2 * pos.x / box.size.x - 1;
+	float y = 1 - 2 * pos.y / box.size.y;
+	render3d::Mat4 inv = renderer.getViewProjection(box.size.x, box.size.y).inverse();
+	Vec3 near = inv.transformPoint(Vec3(x, y, -1));
+	Vec3 far = inv.transformPoint(Vec3(x, y, 1));
+	p.rayOrigin = near;
+	p.rayDir = (far - near).normalize();
+	math::Vec local;
+	int id = pickPlacement(pos, &local);
+	if (id >= 0) {
+		const Placement* placement = APP->scene->rack->getLayout()->getPlacement(id);
+		p.onRack = true;
+		p.hit = placement->surface.toModel(local);
+		p.hitNormal = placement->surface.normal();
+	}
+	return p;
+}
+
+
 void ModelView::onHover(const HoverEvent& e) {
+	mousePos = e.pos;
+	mouseInView = true;
 	if (!forwardToRack(this, e, &widget::Widget::onHover))
 		OpaqueWidget::onHover(e);
 }
+
+
 
 
 void ModelView::onButton(const ButtonEvent& e) {
@@ -141,6 +178,8 @@ void ModelView::onHoverText(const HoverTextEvent& e) {
 
 
 void ModelView::onDragHover(const DragHoverEvent& e) {
+	mousePos = e.pos;
+	mouseInView = true;
 	if (!forwardToRack(this, e, &widget::Widget::onDragHover))
 		OpaqueWidget::onDragHover(e);
 }
