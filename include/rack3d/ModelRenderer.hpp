@@ -84,10 +84,17 @@ struct PartDraw {
 };
 
 
-/** A module's Element3D in 3D: a textured quad standing out of its rack. Model space. */
+/** A module's Element3D in 3D: a textured surface standing out of its rack, flat or bent. Model space. */
 struct ElementDraw {
 	/** Where the element's box corners are: top-left, top-right, bottom-right, bottom-left (in its own box). */
 	render3d::Vec3 corners[4];
+	/** The surface as a grid of (columns + 1) x (rows + 1) points, row by row, and each point's texture coordinate.
+	A flat element is one cell.
+	*/
+	int columns = 1;
+	int rows = 1;
+	std::vector<render3d::Vec3> points;
+	std::vector<math::Vec> uvs;
 	/** The element's content (a NanoVG framebuffer texture, stored bottom row first). */
 	GLuint texture = 0;
 };

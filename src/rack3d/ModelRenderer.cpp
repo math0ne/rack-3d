@@ -826,13 +826,35 @@ void ModelRenderer::updateElementMeshes(const std::vector<ElementDraw>& elements
 		elementMeshes.resize(elements.size());
 	for (size_t i = 0; i < elements.size(); i++) {
 		const ElementDraw& e = elements[i];
-		Vec3 n = (e.corners[1] - e.corners[0]).cross(e.corners[3] - e.corners[0]).normalize();
-		// The texture stores the bottom row first
-		const float uv[4][2] = {{0, 1}, {1, 1}, {1, 0}, {0, 0}};
+		int cols = e.columns, rows = e.rows;
+		if ((int) e.points.size() != (cols + 1) * (rows + 1) || e.uvs.size() != e.points.size())
+			continue;
+		auto at = [&](int c, int r) {
+			return e.points[math::clamp(r, 0, rows) * (cols + 1) + math::clamp(c, 0, cols)];
+		};
 		std::vector<Mesh::Vertex> vertices;
-		for (int k = 0; k < 4; k++)
-			vertices.push_back({e.corners[k].x, e.corners[k].y, e.corners[k].z, n.x, n.y, n.z, uv[k][0], uv[k][1]});
-		elementMeshes[i].upload(vertices, {0, 3, 2, 0, 2, 1});
+		vertices.reserve(e.points.size());
+		for (int r = 0; r <= rows; r++) {
+			for (int c = 0; c <= cols; c++) {
+				// Smooth normal from the neighbouring points (the shader faces it toward the camera)
+				Vec3 du = at(c + 1, r) - at(c - 1, r);
+				Vec3 dv = at(c, r + 1) - at(c, r - 1);
+				Vec3 n = du.cross(dv).normalize();
+				Vec3 p = at(c, r);
+				// The texture stores the bottom row first
+				math::Vec uv = e.uvs[r * (cols + 1) + c];
+				vertices.push_back({p.x, p.y, p.z, n.x, n.y, n.z, uv.x, 1 - uv.y});
+			}
+		}
+		std::vector<uint32_t> indices;
+		indices.reserve(cols * rows * 6);
+		for (int r = 0; r < rows; r++) {
+			for (int c = 0; c < cols; c++) {
+				uint32_t a = r * (cols + 1) + c, b = a + 1, d = a + cols + 1, f = d + 1;
+				indices.insert(indices.end(), {a, d, f, a, f, b});
+			}
+		}
+		elementMeshes[i].upload(vertices, indices);
 	}
 }
 

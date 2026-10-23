@@ -51,6 +51,14 @@ struct Element3D : widget::Widget {
 	ones), and draw a 2D version some other way.
 	*/
 	bool flatIn2D = true;
+	/** Bends the element along its length, from the hinge to the opposite edge: the total angle it turns through,
+	radians. Positive curls toward its front (the side its content faces), negative away. 0 is flat.
+	*/
+	float curl = 0;
+	/** Bends the element across its width, along the hinge: the angle of the arc, radians. Positive raises the side
+	edges toward the front, like a scoop. 0 is flat.
+	*/
+	float cup = 0;
 	/** How far the hinge stands in front of the panel, in panel pixels. */
 	float lift = 0;
 	/** Texture pixels per panel pixel in the 3D view. Raise it for crisp small text on large elements. */

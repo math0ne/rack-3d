@@ -6,7 +6,8 @@ namespace core {
 
 
 /** Rack 3D's audio-reactive flower. The input is split into six bands, each followed by an envelope; in the 3D view
-six petals (rack3d::Element3D) around a floating hub open from a closed bud as their band gets louder. Audio passes
+two rings of cupped petals (rack3d::Element3D) around a floating hub open from a closed bud as their band gets louder,
+over leaves that sway and lift with the bass. Audio passes
 through untouched, and each band's level comes out as a CV.
 */
 struct Bloom : Module {
@@ -133,31 +134,76 @@ static void petalPath(NVGcontext* vg, float w, float h) {
 }
 
 
-/** One petal: closed it leans in over the hub with the others, a bud; open it lies back toward the panel. Brighter as
-it opens, so loud bands glow.
+/** A leaf outline in a w x h box, stem at the bottom middle: broad, pointed, with a toothed edge. */
+static void leafPath(NVGcontext* vg, float w, float h) {
+	nvgBeginPath(vg);
+	nvgMoveTo(vg, w / 2, h);
+	const int TEETH = 7;
+	// Up the left side and down the right, each side a curve with small teeth
+	for (int side = 0; side < 2; side++) {
+		for (int k = 1; k <= TEETH; k++) {
+			float t = (float) k / TEETH;
+			float y = h * (1 - t);
+			// Widest a third of the way up, closing to the tip
+			float half = w / 2 * std::sin(M_PI * std::pow(t, 0.75f)) * 0.95f;
+			float tooth = (k % 2) ? 1.5f : 0.f;
+			float x = side == 0 ? w / 2 - half - tooth : w / 2 + half + tooth;
+			if (side == 1)
+				y = h * t;
+			if (side == 0 || k < TEETH)
+				nvgLineTo(vg, x, y);
+		}
+		if (side == 0)
+			nvgLineTo(vg, w / 2, 0);
+	}
+	nvgLineTo(vg, w / 2, h);
+	nvgClosePath(vg);
+}
+
+
+/** A petal: a cupped surface hinged on a ring around the hub. Closed it leans in over the hub, curling inward with the
+others into a bud; open it lies back toward the panel with its tip flared out. It brightens as it opens, so loud bands
+glow. Inner petals are smaller, sit between the outer ones, and stay more upright, like a rose's heart.
 */
 struct BloomPetal : rack3d::Element3D {
 	Bloom* module = NULL;
 	int band = 0;
+	bool inner = false;
 	/** Shown openness, eased toward the module's. */
 	float shown = 0.f;
-
-	static constexpr float CLOSED_TILT = 150.f * M_PI / 180.f;
-	static constexpr float OPEN_TILT = 10.f * M_PI / 180.f;
 
 	BloomPetal() {
 		hinge = HINGE_BOTTOM;
 		flatIn2D = false;
 		resolution = 3.f;
-		lift = 1.f;
+	}
+
+	float openness() {
+		float o = module ? module->open[band] : 0.55f;
+		// The heart opens less than the outer ring
+		return inner ? 0.7f * o : o;
 	}
 
 	void step() override {
-		// In the module browser (no module), show it half open
-		float target = module ? module->open[band] : 0.55f;
 		float dt = APP->window ? (float) APP->window->getLastFrameDuration() : 0.f;
-		shown += (target - shown) * math::clamp(dt * 14.f, 0.f, 1.f);
-		tilt = CLOSED_TILT + (OPEN_TILT - CLOSED_TILT) * shown;
+		shown += (openness() - shown) * math::clamp(dt * 14.f, 0.f, 1.f);
+		auto mix = [&](float closed, float open) {
+			return closed + (open - closed) * shown;
+		};
+		const float DEG = M_PI / 180.f;
+		if (inner) {
+			tilt = mix(162.f, 62.f) * DEG;
+			curl = mix(0.9f, 0.1f);
+			cup = mix(1.6f, 1.2f);
+			lift = 3.f;
+		}
+		else {
+			tilt = mix(150.f, 16.f) * DEG;
+			// Tips curl in around the bud when closed, flare back out when open
+			curl = mix(0.7f, -0.55f);
+			cup = mix(1.4f, 0.8f);
+			lift = 2.f;
+		}
 		Element3D::step();
 	}
 
@@ -165,38 +211,88 @@ struct BloomPetal : rack3d::Element3D {
 		NVGcontext* vg = args.vg;
 		float w = box.size.x, h = box.size.y;
 		float hue = module ? module->params[Bloom::HUE_PARAM].getValue() : 0.9f;
-		float glow = 0.28f + 0.36f * shown;
+		float glow = (inner ? 0.36f : 0.28f) + 0.36f * shown;
 		petalPath(vg, w, h);
-		nvgFillPaint(vg, nvgLinearGradient(vg, 0, h, 0, 0, bandColor(hue, band, glow * 0.55f), bandColor(hue, band, glow)));
+		// Darker at the base, brightest toward the tip, a pale edge
+		nvgFillPaint(vg, nvgLinearGradient(vg, 0, h, 0, h * 0.2f, bandColor(hue, band, glow * 0.45f), bandColor(hue, band, glow)));
 		nvgFill(vg);
-		nvgStrokeColor(vg, bandColor(hue, band, 0.15f));
-		nvgStrokeWidth(vg, 1.0f);
+		nvgStrokeColor(vg, bandColor(hue, band, std::min(0.9f, glow + 0.25f), 0.8f));
+		nvgStrokeWidth(vg, 1.2f);
 		nvgStroke(vg);
-		// Midrib and veins
+		// Fine veins fanning from the base
 		nvgBeginPath(vg);
-		nvgMoveTo(vg, w / 2, h - 2);
-		nvgLineTo(vg, w / 2, h * 0.12f);
-		for (int k = 1; k <= 3; k++) {
-			float y = h * (0.85f - 0.2f * k);
-			nvgMoveTo(vg, w / 2, y + 6);
-			nvgLineTo(vg, w * 0.22f, y);
-			nvgMoveTo(vg, w / 2, y + 6);
-			nvgLineTo(vg, w * 0.78f, y);
+		for (int k = -3; k <= 3; k++) {
+			nvgMoveTo(vg, w / 2, h - 1);
+			nvgQuadTo(vg, w / 2 + k * w * 0.06f, h * 0.6f, w / 2 + k * w * 0.11f, h * 0.18f + std::abs(k) * h * 0.05f);
 		}
-		nvgStrokeColor(vg, nvgRGBA(0xff, 0xff, 0xff, 0x50));
-		nvgStrokeWidth(vg, 0.8f);
+		nvgStrokeColor(vg, nvgRGBA(0xff, 0xff, 0xff, 0x38));
+		nvgStrokeWidth(vg, 0.6f);
 		nvgStroke(vg);
 	}
 };
 
 
-/** The hub: a disc floating above the panel's centre that glows with the loudest band. */
+/** A leaf under the flower, pointing out between two petals. It sways gently and lifts with the bass. */
+struct BloomLeaf : rack3d::Element3D {
+	Bloom* module = NULL;
+	int index = 0;
+	float bass = 0.f;
+
+	BloomLeaf() {
+		hinge = HINGE_BOTTOM;
+		flatIn2D = false;
+		resolution = 3.f;
+		lift = 0.5f;
+	}
+
+	void step() override {
+		float dt = APP->window ? (float) APP->window->getLastFrameDuration() : 0.f;
+		float target = module ? module->level[0] : 0.3f;
+		bass += (target - bass) * math::clamp(dt * 6.f, 0.f, 1.f);
+		float sway = std::sin(system::getTime() * 0.8 + index * 1.7) * 0.05f;
+		tilt = (12.f * M_PI / 180.f) + sway + 0.35f * bass;
+		// Tips droop back toward the panel; the blade folds a little along its midrib
+		curl = -0.75f + 0.2f * bass;
+		cup = 0.9f;
+		Element3D::step();
+	}
+
+	void drawContent(const DrawArgs& args) override {
+		NVGcontext* vg = args.vg;
+		float w = box.size.x, h = box.size.y;
+		// Slightly different greens leaf to leaf
+		float hue = 0.27f + 0.02f * ((index * 37) % 5) / 4.f;
+		leafPath(vg, w, h);
+		nvgFillPaint(vg, nvgLinearGradient(vg, 0, h, 0, 0, nvgHSL(hue, 0.55f, 0.16f), nvgHSL(hue, 0.5f, 0.32f)));
+		nvgFill(vg);
+		nvgStrokeColor(vg, nvgHSL(hue, 0.5f, 0.12f));
+		nvgStrokeWidth(vg, 0.8f);
+		nvgStroke(vg);
+		// Midrib and side veins
+		nvgBeginPath(vg);
+		nvgMoveTo(vg, w / 2, h);
+		nvgLineTo(vg, w / 2, h * 0.06f);
+		for (int k = 1; k <= 5; k++) {
+			float y = h * (0.92f - 0.15f * k);
+			for (int side = -1; side <= 1; side += 2) {
+				nvgMoveTo(vg, w / 2, y + 7);
+				nvgQuadTo(vg, w / 2 + side * w * 0.18f, y + 2, w / 2 + side * w * 0.36f, y - 3);
+			}
+		}
+		nvgStrokeColor(vg, nvgHSLA(hue, 0.4f, 0.55f, 0x70));
+		nvgStrokeWidth(vg, 0.7f);
+		nvgStroke(vg);
+	}
+};
+
+
+/** The hub: a disc floating just above the petals' ring that glows with the loudest band. */
 struct BloomHub : rack3d::Element3D {
 	Bloom* module = NULL;
 
 	BloomHub() {
 		tilt = 0.f;
-		lift = 9.f;
+		lift = 7.f;
 		resolution = 4.f;
 	}
 
@@ -209,43 +305,65 @@ struct BloomHub : rack3d::Element3D {
 		nvgCircle(vg, r, r, r - 0.5f);
 		nvgFillColor(vg, nvgRGB(0x1e, 0x1f, 0x22));
 		nvgFill(vg);
+		// Stamens: a ring of dots
+		for (int k = 0; k < 10; k++) {
+			float a = 2 * M_PI * k / 10;
+			nvgBeginPath(vg);
+			nvgCircle(vg, r + std::cos(a) * r * 0.72f, r + std::sin(a) * r * 0.72f, r * 0.12f);
+			nvgFillColor(vg, nvgHSL(0.13f, 0.9f, 0.45f + 0.25f * peak));
+			nvgFill(vg);
+		}
 		nvgBeginPath(vg);
-		nvgCircle(vg, r, r, r * (0.35f + 0.45f * peak));
+		nvgCircle(vg, r, r, r * (0.3f + 0.25f * peak));
 		NVGcolor core = bandColor(hue + 0.08f, 0, 0.3f + 0.35f * peak);
-		nvgFillPaint(vg, nvgRadialGradient(vg, r, r, 0, r * 0.8f, bandColor(hue + 0.08f, 0, 0.75f), core));
+		nvgFillPaint(vg, nvgRadialGradient(vg, r, r, 0, r * 0.6f, bandColor(hue + 0.08f, 0, 0.75f), core));
 		nvgFill(vg);
 	}
 };
 
 
-/** The 2D rack's stand-in for the petals: a flat flower seen from above whose petals grow as they open. Left out of
-the 3D view's texture, where the real petals are.
+/** The 2D rack's stand-in for the flower, seen from above: leaves, then petals growing as they open. Left out of
+the 3D view's texture, where the real ones are.
 */
 struct BloomFlower2D : Widget {
-	BloomPetal* petals[Bloom::BANDS] = {};
+	std::vector<BloomLeaf*> leaves;
+	std::vector<BloomPetal*> petals;
 	math::Vec center;
-	float hubRadius = 0;
+	float petalRing = 0;
+	float innerRing = 0;
+	float leafRing = 0;
 
 	void draw(const DrawArgs& args) override {
 		if (rack3d::isDrawingRackTextures())
 			return;
 		NVGcontext* vg = args.vg;
-		for (int i = 0; i < Bloom::BANDS; i++) {
-			BloomPetal* p = petals[i];
-			if (!p)
-				continue;
-			float w = p->box.size.x, h = p->box.size.y;
-			float length = 0.35f + 0.65f * p->shown;
+		auto place = [&](rack3d::Element3D* e, float ring, float length) {
+			float w = e->box.size.x, h = e->box.size.y;
 			nvgSave(vg);
 			nvgTranslate(vg, center.x, center.y);
-			nvgRotate(vg, p->angle);
-			nvgTranslate(vg, -w / 2, -hubRadius - h * length);
+			nvgRotate(vg, e->angle);
+			nvgTranslate(vg, -w / 2, -ring - h * length);
 			nvgScale(vg, 1.f, length);
-			float hue = p->module ? p->module->params[Bloom::HUE_PARAM].getValue() : 0.9f;
-			petalPath(vg, w, h);
-			nvgFillColor(vg, bandColor(hue, i, 0.3f + 0.3f * p->shown));
+		};
+		for (BloomLeaf* leaf : leaves) {
+			place(leaf, leafRing, 0.85f + 0.15f * leaf->bass);
+			float hue = 0.27f;
+			leafPath(vg, leaf->box.size.x, leaf->box.size.y);
+			nvgFillColor(vg, nvgHSL(hue, 0.5f, 0.26f));
 			nvgFill(vg);
 			nvgRestore(vg);
+		}
+		for (int pass = 0; pass < 2; pass++) {
+			for (BloomPetal* p : petals) {
+				if (p->inner != (pass == 1))
+					continue;
+				place(p, p->inner ? innerRing : petalRing, (p->inner ? 0.3f : 0.35f) + 0.65f * p->shown);
+				float hue = p->module ? p->module->params[Bloom::HUE_PARAM].getValue() : 0.9f;
+				petalPath(vg, p->box.size.x, p->box.size.y);
+				nvgFillColor(vg, bandColor(hue, p->band, (p->inner ? 0.38f : 0.3f) + 0.3f * p->shown));
+				nvgFill(vg);
+				nvgRestore(vg);
+			}
 		}
 	}
 };
@@ -273,10 +391,10 @@ struct BloomPanel : Widget {
 		nvgFillColor(vg, nvgRGB(0xec, 0xeb, 0xe8));
 		nvgFill(vg);
 
-		// The dish the petals open onto
+		// The dish the flower grows from: dark earth toward the middle
 		nvgBeginPath(vg);
 		nvgCircle(vg, center.x, center.y, dishRadius);
-		nvgFillPaint(vg, nvgRadialGradient(vg, center.x, center.y, dishRadius * 0.2f, dishRadius, nvgRGB(0x2c, 0x2d, 0x31), nvgRGB(0x3c, 0x3d, 0x42)));
+		nvgFillPaint(vg, nvgRadialGradient(vg, center.x, center.y, dishRadius * 0.15f, dishRadius, nvgRGB(0x24, 0x22, 0x20), nvgRGB(0x3a, 0x3b, 0x3f)));
 		nvgFill(vg);
 
 		if (APP->window && APP->window->uiFont) {
@@ -284,20 +402,20 @@ struct BloomPanel : Widget {
 			nvgFillColor(vg, nvgRGB(0x22, 0x22, 0x22));
 			nvgTextAlign(vg, NVG_ALIGN_CENTER | NVG_ALIGN_BASELINE);
 			nvgFontSize(vg, 14);
-			nvgText(vg, box.size.x / 2, 24, "BLOOM", NULL);
+			nvgText(vg, box.size.x / 2, 22, "BLOOM", NULL);
 			nvgFontSize(vg, 8);
-			nvgText(vg, box.size.x / 2, 35, "SPECTRAL FLOWER", NULL);
+			nvgText(vg, box.size.x / 2, 32, "SPECTRAL FLOWER", NULL);
 			const char* knobs[4] = {"SENSE", "RELEASE", "REST", "HUE"};
 			for (int i = 0; i < 4; i++)
-				nvgText(vg, 30 + 40 * i, 214, knobs[i], NULL);
-			nvgText(vg, box.size.x / 2, 256, "BAND LEVELS", NULL);
+				nvgText(vg, 30 + 40 * i, 226, knobs[i], NULL);
+			nvgText(vg, box.size.x / 2, 264, "BAND LEVELS", NULL);
 			const char* io[4] = {"IN L", "IN R", "OUT L", "OUT R"};
 			for (int i = 0; i < 4; i++)
-				nvgText(vg, 30 + 40 * i, 318, io[i], NULL);
+				nvgText(vg, 30 + 40 * i, 322, io[i], NULL);
 		}
 		// Output section backing
 		nvgBeginPath(vg);
-		nvgRoundedRect(vg, 92, 322, 78, 30, 4);
+		nvgRoundedRect(vg, 92, 326, 78, 30, 4);
 		nvgFillColor(vg, nvgRGB(0x2a, 0x2b, 0x2e));
 		nvgFill(vg);
 		Widget::draw(args);
@@ -309,14 +427,16 @@ struct BloomWidget : ModuleWidget {
 	BloomWidget(Bloom* module) {
 		setModule(module);
 		box.size = Vec(RACK_GRID_WIDTH * 12, RACK_GRID_HEIGHT);
-		const Vec center(box.size.x / 2, 128);
-		const float hubRadius = 12.f;
-		const Vec petalSize(28, 48);
+		const Vec center(box.size.x / 2, 124);
+		const float hubRadius = 10.f;
+		// Rings the hinges sit on, and the parts' sizes
+		const float innerRing = 7.f, petalRing = 11.f, leafRing = 20.f;
+		const Vec petalSize(30, 50), innerSize(22, 36), leafSize(30, 58);
 
 		BloomPanel* panel = new BloomPanel;
 		panel->box.size = box.size;
 		panel->center = center;
-		panel->dishRadius = hubRadius + petalSize.y + 6;
+		panel->dishRadius = leafRing + leafSize.y + 4;
 		setPanel(panel);
 
 		addChild(createWidget<ScrewSilver>(Vec(RACK_GRID_WIDTH, 0)));
@@ -324,38 +444,61 @@ struct BloomWidget : ModuleWidget {
 		addChild(createWidget<ScrewSilver>(Vec(RACK_GRID_WIDTH, RACK_GRID_HEIGHT - RACK_GRID_WIDTH)));
 		addChild(createWidget<ScrewSilver>(Vec(box.size.x - 2 * RACK_GRID_WIDTH, RACK_GRID_HEIGHT - RACK_GRID_WIDTH)));
 
-		// Petals around the hub: each box's bottom middle (its hinge) on the hub's rim, turned to point outward
 		BloomFlower2D* flower = new BloomFlower2D;
 		flower->box.size = box.size;
 		flower->center = center;
-		flower->hubRadius = hubRadius;
+		flower->petalRing = petalRing;
+		flower->innerRing = innerRing;
+		flower->leafRing = leafRing;
 		addChild(flower);
+
+		// Each part's box has its bottom middle (the hinge) on its ring, turned by `angle` to point outward
+		auto ringed = [&](rack3d::Element3D* e, float ring, float angle, Vec size) {
+			Vec rim = center.plus(Vec(std::sin(angle), -std::cos(angle)).mult(ring));
+			e->angle = angle;
+			e->box.pos = rim.minus(Vec(size.x / 2, size.y));
+			e->box.size = size;
+			addChild(e);
+		};
+		const float step = 2 * M_PI / Bloom::BANDS;
+		// Leaves between the outer petals, under everything
 		for (int i = 0; i < Bloom::BANDS; i++) {
-			float a = 2 * M_PI * i / Bloom::BANDS;
-			Vec rim = center.plus(Vec(std::sin(a), -std::cos(a)).mult(hubRadius));
+			BloomLeaf* leaf = new BloomLeaf;
+			leaf->module = module;
+			leaf->index = i;
+			ringed(leaf, leafRing, step * (i + 0.5f), leafSize);
+			flower->leaves.push_back(leaf);
+		}
+		for (int i = 0; i < Bloom::BANDS; i++) {
 			BloomPetal* petal = new BloomPetal;
 			petal->module = module;
 			petal->band = i;
-			petal->angle = a;
-			petal->box.pos = rim.minus(Vec(petalSize.x / 2, petalSize.y));
-			petal->box.size = petalSize;
-			addChild(petal);
-			flower->petals[i] = petal;
+			ringed(petal, petalRing, step * i, petalSize);
+			flower->petals.push_back(petal);
+		}
+		// The heart: inner petals between the outer ones, following the same bands
+		for (int i = 0; i < Bloom::BANDS; i++) {
+			BloomPetal* petal = new BloomPetal;
+			petal->module = module;
+			petal->band = i;
+			petal->inner = true;
+			ringed(petal, innerRing, step * (i + 0.5f), innerSize);
+			flower->petals.push_back(petal);
 		}
 		BloomHub* hub = new BloomHub;
 		hub->module = module;
-		hub->box.size = Vec(2 * hubRadius + 4, 2 * hubRadius + 4);
+		hub->box.size = Vec(2 * hubRadius, 2 * hubRadius);
 		hub->box.pos = center.minus(hub->box.size.div(2));
 		addChild(hub);
 
 		for (int i = 0; i < 4; i++)
-			addParam(createParamCentered<RoundSmallBlackKnob>(Vec(30 + 40 * i, 230), module, Bloom::SENSE_PARAM + i));
+			addParam(createParamCentered<RoundSmallBlackKnob>(Vec(30 + 40 * i, 242), module, Bloom::SENSE_PARAM + i));
 		for (int i = 0; i < Bloom::BANDS; i++)
-			addOutput(createOutputCentered<PJ301MPort>(Vec(22.5f + 27 * i, 280), module, Bloom::BAND_OUTPUT + i));
-		addInput(createInputCentered<PJ301MPort>(Vec(30, 337), module, Bloom::IN_L_INPUT));
-		addInput(createInputCentered<PJ301MPort>(Vec(70, 337), module, Bloom::IN_R_INPUT));
-		addOutput(createOutputCentered<PJ301MPort>(Vec(110, 337), module, Bloom::OUT_L_OUTPUT));
-		addOutput(createOutputCentered<PJ301MPort>(Vec(150, 337), module, Bloom::OUT_R_OUTPUT));
+			addOutput(createOutputCentered<PJ301MPort>(Vec(22.5f + 27 * i, 287), module, Bloom::BAND_OUTPUT + i));
+		addInput(createInputCentered<PJ301MPort>(Vec(30, 341), module, Bloom::IN_L_INPUT));
+		addInput(createInputCentered<PJ301MPort>(Vec(70, 341), module, Bloom::IN_R_INPUT));
+		addOutput(createOutputCentered<PJ301MPort>(Vec(110, 341), module, Bloom::OUT_L_OUTPUT));
+		addOutput(createOutputCentered<PJ301MPort>(Vec(150, 341), module, Bloom::OUT_R_OUTPUT));
 	}
 };
 

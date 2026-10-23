@@ -430,20 +430,67 @@ void ModelView::updateControls() {
 			auto flat = [&](math::Vec local) {
 				return pivot + turn.rotate(onPanel(local) - pivot);
 			};
-			render3d::Vec3 h0 = flat(hingeA);
-			render3d::Vec3 axis = (flat(hingeB) - h0).normalize();
+			// The box in hinge coordinates: s runs along the hinge (0..1), t from the hinge to the opposite edge (0..1)
+			math::Vec hingeVec = hingeB.minus(hingeA);
+			math::Vec perp;
+			switch (el->hinge) {
+				case Element3D::HINGE_BOTTOM: perp = math::Vec(0, -size.y); break;
+				case Element3D::HINGE_TOP: perp = math::Vec(0, size.y); break;
+				case Element3D::HINGE_LEFT: perp = math::Vec(size.x, 0); break;
+				case Element3D::HINGE_RIGHT: perp = math::Vec(-size.x, 0); break;
+			}
 			render3d::Vec3 n = s.normal();
-			render3d::Vec3 lift = n * (el->lift * s.unitsPerPx);
+			render3d::Vec3 h0 = flat(hingeA);
+			render3d::Vec3 axis = flat(hingeB) - h0;
+			float width = axis.norm();
+			axis = axis.normalize();
+			render3d::Vec3 awayDir = flat(hingeA.plus(perp)) - h0;
+			float length = awayDir.norm();
+			awayDir = awayDir.normalize();
+			// Tilted out of the panel: `out` points from the hinge toward the far edge, `front` is the side the content
+			// faces (the panel's normal when flat)
 			float c = std::cos(el->tilt), sn = std::sin(el->tilt);
+			render3d::Vec3 out = awayDir * c + n * sn;
+			render3d::Vec3 front = n * c - awayDir * sn;
+			render3d::Vec3 lift = n * (el->lift * s.unitsPerPx);
+			float curl = el->curl, cup = el->cup;
+			auto surface = [&](float u, float t) {
+				// Along the length, an arc turning toward the front by `curl` in all
+				render3d::Vec3 p = h0 + axis * (width * u) + lift;
+				render3d::Vec3 frontHere = front;
+				if (std::fabs(curl) < 1e-3f) {
+					p = p + out * (length * t);
+				}
+				else {
+					float r = length / curl, a = curl * t;
+					p = p + out * (r * std::sin(a)) + front * (r * (1 - std::cos(a)));
+					frontHere = front * std::cos(a) - out * std::sin(a);
+				}
+				// Across the width, an arc of `cup` about the middle, its edges rising toward the front
+				if (std::fabs(cup) >= 1e-3f) {
+					float x = u - 0.5f, r = width / cup, a = cup * x;
+					p = p + axis * (r * std::sin(a) - width * x) + frontHere * (r * (1 - std::cos(a)));
+				}
+				return p;
+			};
 			ElementDraw d;
+			d.columns = std::fabs(cup) >= 1e-3f ? 10 : 1;
+			d.rows = std::fabs(curl) >= 1e-3f ? 14 : 1;
+			for (int r = 0; r <= d.rows; r++) {
+				for (int col = 0; col <= d.columns; col++) {
+					float u = (float) col / d.columns, t = (float) r / d.rows;
+					d.points.push_back(surface(u, t));
+					math::Vec local = hingeA.plus(hingeVec.mult(u)).plus(perp.mult(t));
+					d.uvs.push_back(local.div(size));
+				}
+			}
+			// The box corners, wherever the hinge puts them
 			const math::Vec corners[4] = {math::Vec(0, 0), math::Vec(size.x, 0), size, math::Vec(0, size.y)};
 			for (int k = 0; k < 4; k++) {
-				// Split the corner's offset from the hinge into along-hinge and away-from-hinge parts, and turn the
-				// second out of the panel
-				render3d::Vec3 v = flat(corners[k]) - h0;
-				render3d::Vec3 along = axis * v.dot(axis);
-				render3d::Vec3 away = v - along;
-				d.corners[k] = h0 + along + away * c + n * (away.norm() * sn) + lift;
+				math::Vec v = corners[k].minus(hingeA);
+				float u = v.dot(hingeVec) / hingeVec.dot(hingeVec);
+				float t = v.dot(perp) / perp.dot(perp);
+				d.corners[k] = surface(u, t);
 			}
 			elements.push_back(d);
 			elementWidgets.push_back(el);

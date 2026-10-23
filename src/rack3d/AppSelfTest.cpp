@@ -11,6 +11,7 @@
 #include <app/Switch.hpp>
 #include <engine/ParamQuantity.hpp>
 #include <set>
+#include <map>
 #include <functional>
 #include <algorithm>
 #include <app/PortWidget.hpp>
@@ -932,7 +933,8 @@ int runAppSelfTest() {
 				check(view->elementWidgets.empty() || std::find(view->elementWidgets.begin(), view->elementWidgets.end(), fin) == view->elementWidgets.end(), "3d elements: a removed module's fin is gone");
 			}
 
-			// Bloom: six petals turned to point outward around a floating hub; with no sound they close into a bud
+			// Bloom: rings of petals and leaves turned to point outward around a floating hub; with no sound the petals
+			// close into a bud
 			plugin::Model* bloomModel = plugin::getModel("Core", "Bloom");
 			check(bloomModel, "bloom: Core has Bloom");
 			if (bloomModel) {
@@ -943,37 +945,45 @@ int runAppSelfTest() {
 				rack->setModulePosNearest(mw, gridPx(36, 6));
 				for (int i = 0; i < 60; i++)
 					APP->window->step();
-				std::vector<const ElementDraw*> petals;
+				// Parts by height: outer petals 50 px, inner petals 36, leaves 58 (see BloomWidget)
+				std::map<int, std::vector<const ElementDraw*>> rings;
 				const ElementDraw* hub = NULL;
 				for (size_t i = 0; i < view->elementWidgets.size(); i++) {
-					if (!view->elementWidgets[i]->isDescendantOf(mw))
+					Element3D* e = view->elementWidgets[i];
+					if (!e->isDescendantOf(mw))
 						continue;
-					if (view->elementWidgets[i]->flatIn2D)
+					if (e->flatIn2D)
 						hub = &view->elements[i];
 					else
-						petals.push_back(&view->elements[i]);
+						rings[(int) std::round(e->box.size.y)].push_back(&view->elements[i]);
 				}
-				check(petals.size() == 6 && hub, "bloom: six petals and a hub in 3D");
+				check(hub && rings.size() == 3 && rings[50].size() == 6 && rings[36].size() == 6 && rings[58].size() == 6, "bloom: six outer petals, six inner petals, six leaves and a hub in 3D");
+				bool curved = !rings[50].empty() && rings[50][0]->columns > 1 && rings[50][0]->rows > 1;
+				check(curved, "bloom: the petals are curved surfaces, not flat cards");
 				const Placement* p = rack->getLayout()->placementOf(mw->getGridBox());
-				if (petals.size() == 6 && hub && p) {
+				if (hub && rings.size() == 3 && p) {
 					render3d::Vec3 n = p->surface.normal();
 					render3d::Vec3 hubCenter = (hub->corners[0] + hub->corners[2]) * 0.5f;
-					// The hub floats: its centre stands in front of the panel
-					render3d::Vec3 panelCenter = p->surface.toModel(mw->getRelativeOffset(math::Vec(mw->box.size.x / 2, 128), rack).minus(rack3d::Layout::getRackRect(*p).pos));
+					render3d::Vec3 panelCenter = p->surface.toModel(mw->getRelativeOffset(math::Vec(mw->box.size.x / 2, 124), rack).minus(rack3d::Layout::getRackRect(*p).pos));
 					check((hubCenter - panelCenter).dot(n) > 0.005f, "bloom: the hub floats above the panel");
-					float minR = INFINITY, maxR = 0;
-					bool budClosed = true;
-					for (const ElementDraw* d : petals) {
-						render3d::Vec3 hinge = (d->corners[2] + d->corners[3]) * 0.5f;
-						render3d::Vec3 rim = hinge - panelCenter;
-						rim = rim - n * rim.dot(n);
-						minR = std::fmin(minR, rim.norm());
-						maxR = std::fmax(maxR, rim.norm());
-						// Closed: the tip leans back in over the hub
-						render3d::Vec3 tip = (d->corners[0] + d->corners[1]) * 0.5f;
-						budClosed = budClosed && (tip - hinge).dot(rim.normalize()) < 0;
+					bool even = true, budClosed = true;
+					for (auto& ring : rings) {
+						float minR = INFINITY, maxR = 0;
+						for (const ElementDraw* d : ring.second) {
+							// The middle of the hinge: the first row's middle point, where cupping doesn't move it
+							render3d::Vec3 hinge = d->points[d->columns / 2];
+							render3d::Vec3 rim = hinge - panelCenter;
+							rim = rim - n * rim.dot(n);
+							minR = std::fmin(minR, rim.norm());
+							maxR = std::fmax(maxR, rim.norm());
+							// Closed petals lean back in over the hub (leaves don't close)
+							render3d::Vec3 tip = (d->corners[0] + d->corners[1]) * 0.5f;
+							if (ring.first != 58)
+								budClosed = budClosed && (tip - hinge).dot(rim.normalize()) < 0;
+						}
+						even = even && maxR - minR < 0.01f * maxR + 1e-4f;
 					}
-					check(maxR - minR < 0.01f * maxR + 1e-4f, "bloom: the petals' hinges sit evenly on the hub's rim");
+					check(even, "bloom: each ring's hinges sit evenly around the hub");
 					check(budClosed, "bloom: with no sound the petals close into a bud");
 				}
 				rack->removeModule(mw);
