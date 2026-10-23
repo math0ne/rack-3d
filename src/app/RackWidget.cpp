@@ -19,6 +19,7 @@
 #include <helpers.hpp>
 #include <rack3d/Layout.hpp>
 #include <rack3d/settings.hpp>
+#include <rack3d/Placement.hpp>
 
 
 namespace rack {
@@ -42,6 +43,10 @@ struct RackWidget::Internal {
 
 	/** Rack 3D placements. Only enforced while rack3d::settings::placementsEnabled is on. */
 	rack3d::Layout layout;
+	/** Rack 3D: stray modules that couldn't be moved into any rack, by module ID, with the position they were at.
+	moveStrayModules() doesn't retry them until they move, so a full layout doesn't cost a full search every frame.
+	*/
+	std::map<int64_t, math::Vec> strayGivenUp;
 };
 
 
@@ -145,7 +150,42 @@ rack3d::Layout* RackWidget::getLayout() {
 	return &internal->layout;
 }
 
+/** Rack 3D: moves modules that are outside every placement into the nearest rack. They get there when a plugin sets
+box.pos directly, or from a patch made without placements. Skips the module being dragged.
+*/
+static void moveStrayModules(RackWidget* rack) {
+	RackWidget::Internal* internal = rack->internal;
+	std::vector<ModuleWidget*> strays;
+	for (widget::Widget* w : internal->moduleContainer->children) {
+		ModuleWidget* mw = static_cast<ModuleWidget*>(w);
+		if (w == APP->event->draggedWidget)
+			continue;
+		if (!rack3d::isStray(mw)) {
+			internal->strayGivenUp.erase(mw->module->id);
+			continue;
+		}
+		auto it = internal->strayGivenUp.find(mw->module->id);
+		if (it != internal->strayGivenUp.end() && it->second.equals(mw->box.pos))
+			continue;
+		strays.push_back(mw);
+	}
+
+	for (ModuleWidget* mw : strays) {
+		math::Vec oldPos = mw->box.pos;
+		rack->setModulePosNearest(mw, oldPos);
+		if (rack3d::isStray(mw)) {
+			WARN("No room in any rack for %s (module %lld), leaving it outside", mw->model->getFullName().c_str(), (long long) mw->module->id);
+			internal->strayGivenUp[mw->module->id] = mw->box.pos;
+		}
+		else {
+			INFO("Moved %s (module %lld) into a rack", mw->model->getFullName().c_str(), (long long) mw->module->id);
+		}
+	}
+}
+
 void RackWidget::step() {
+	if (rack3d::settings::placementsEnabled)
+		moveStrayModules(this);
 	Widget::step();
 }
 
@@ -532,6 +572,21 @@ static PasteJsonResult RackWidget_pasteJson(RackWidget* that, json_t* rootJ, his
 	// This calls updateExpanders()
 	that->setSelectionPosNearest(math::Vec(0, 0));
 
+	// Rack 3D: if the selection doesn't fit in the racks, paste none of it. Clearing newModules also skips its cables.
+	bool stray = false;
+	for (auto pair : newModules)
+		stray = stray || rack3d::isStray(pair.second);
+	if (stray) {
+		INFO("No room in any rack for the pasted selection, removing it");
+		for (auto pair : newModules) {
+			that->removeModule(pair.second);
+			delete pair.second;
+		}
+		newModules.clear();
+		rack3d::warnNoRoom();
+		return {newModules};
+	}
+
 	// Add positioned selected modules to history
 	for (ModuleWidget* mw : that->getSelected()) {
 		// history::ModuleAdd
@@ -631,6 +686,11 @@ void RackWidget::pasteModuleJsonAction(json_t* moduleJ) {
 
 	updateModuleOldPositions();
 	addModuleAtMouse(mw);
+	// Rack 3D: no room in any rack
+	if (rack3d::rejectIfStray(mw)) {
+		delete h;
+		return;
+	}
 	h->push(getModuleDragAction());
 
 	// history::ModuleAdd

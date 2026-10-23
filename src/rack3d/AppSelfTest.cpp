@@ -1,7 +1,9 @@
 #include <rack3d/AppSelfTest.hpp>
 #include <rack3d/Layout.hpp>
 #include <rack3d/settings.hpp>
+#include <rack3d/Placement.hpp>
 #include <app/RackWidget.hpp>
+#include <system.hpp>
 #include <app/Scene.hpp>
 #include <engine/Engine.hpp>
 #include <plugin.hpp>
@@ -52,6 +54,44 @@ static app::ModuleWidget* addBlank(int hp, float x, float y) {
 
 static bool isInPlacement(app::ModuleWidget* mw) {
 	return APP->scene->rack->getLayout()->placementOf(mw->getGridBox()) != NULL;
+}
+
+
+/** Fills every row of the cube with 4 HP Blanks, leaving no room anywhere. */
+static void fillLayout() {
+	for (int y = 0; y < 23; y++) {
+		if (y % 4 == 3)
+			continue;
+		for (int x = 0; x + 4 <= 76; x += 4)
+			addBlank(4, x, y);
+	}
+}
+
+
+/** JSON for a Core Blank module, as copied to the clipboard. */
+static json_t* blankJson(int hp, float x, float y) {
+	json_t* moduleJ = json_object();
+	json_object_set_new(moduleJ, "id", json_integer(1000 + (int64_t) x));
+	json_object_set_new(moduleJ, "plugin", json_string("Core"));
+	json_object_set_new(moduleJ, "model", json_string("Blank"));
+	json_object_set_new(moduleJ, "version", json_string(APP_VERSION.c_str()));
+	json_t* dataJ = json_object();
+	json_object_set_new(dataJ, "width", json_integer(hp));
+	json_object_set_new(moduleJ, "data", dataJ);
+	json_object_set_new(moduleJ, "pos", json_pack("[f, f]", x, y));
+	return moduleJ;
+}
+
+
+/** JSON for a 2-module selection, as copied to the clipboard. */
+static json_t* selectionJson() {
+	json_t* rootJ = json_object();
+	json_t* modulesJ = json_array();
+	json_array_append_new(modulesJ, blankJson(10, 0, 0));
+	json_array_append_new(modulesJ, blankJson(10, 10, 0));
+	json_object_set_new(rootJ, "modules", modulesJ);
+	json_object_set_new(rootJ, "cables", json_array());
+	return rootJ;
 }
 
 
@@ -133,14 +173,8 @@ int runAppSelfTest() {
 
 	// Full layout: nearest gives up and leaves the module where it was
 	resetRack();
+	fillLayout();
 	{
-		for (int y = 0; y < 23; y++) {
-			if (y % 4 == 3)
-				continue;
-			for (int x = 0; x + 4 <= 76; x += 4)
-				addBlank(4, x, y);
-		}
-		// The 76th HP of every row is free but too narrow for a 4 HP module
 		app::ModuleWidget* b = addBlank(4, 200, 0);
 		rack->setModulePosNearest(b, gridPx(30, 0));
 		check(gridPos(b).equals(math::Vec(200, 0)), "on: full layout leaves the module where it was");
@@ -234,6 +268,88 @@ int runAppSelfTest() {
 		check(gridPos(x).equals(math::Vec(30, 0)) && gridPos(row.back()).x == 70, "off: force shoves past HP 76 like stock");
 	}
 
+	settings::placementsEnabled = true;
+	quietWarnings = true;
+
+	// Stray-module check: a module a plugin put in a gutter is moved into a rack on the next step
+	resetRack();
+	{
+		app::ModuleWidget* a = addBlank(10, 10, 3);
+		check(isStray(a), "on: a module in a gutter is stray");
+		rack->step();
+		check(!isStray(a) && isInPlacement(a), "on: the stray check moves it into a rack");
+	}
+
+	// Stray check with no room: gives up once, then doesn't search again every frame
+	resetRack();
+	fillLayout();
+	{
+		app::ModuleWidget* a = addBlank(4, 200, 0);
+		rack->step();
+		check(isStray(a) && gridPos(a).equals(math::Vec(200, 0)), "on: with no room, the stray stays where it was");
+		double t0 = system::getTime();
+		rack->step();
+		double dt = system::getTime() - t0;
+		check(dt < 0.02, "on: ...and later frames don't redo the search");
+	}
+
+	// Paste a module with no room: rejected with a warning, nothing left behind
+	resetRack();
+	fillLayout();
+	{
+		json_t* moduleJ = blankJson(10, 0, 0);
+		size_t n = rack->getModules().size();
+		int warnings = noRoomWarnings;
+		rack->pasteModuleJsonAction(moduleJ);
+		json_decref(moduleJ);
+		check(rack->getModules().size() == n && noRoomWarnings == warnings + 1, "on: pasting a module with no room is rejected with a warning");
+	}
+
+	// Paste a module with room: lands in a rack
+	resetRack();
+	{
+		json_t* moduleJ = blankJson(10, 0, 0);
+		rack->pasteModuleJsonAction(moduleJ);
+		json_decref(moduleJ);
+		check(rack->getModules().size() == 1 && allInPlacements(), "on: pasting a module lands it in a rack");
+	}
+
+	// Paste a selection with room / without room
+	resetRack();
+	{
+		json_t* selJ = selectionJson();
+		rack->pasteJsonAction(selJ);
+		json_decref(selJ);
+		check(rack->getModules().size() == 2 && allInPlacements() && noOverlaps(), "on: pasting a selection lands it in racks");
+	}
+	resetRack();
+	fillLayout();
+	{
+		json_t* selJ = selectionJson();
+		size_t n = rack->getModules().size();
+		int warnings = noRoomWarnings;
+		rack->pasteJsonAction(selJ);
+		json_decref(selJ);
+		check(rack->getModules().size() == n && noRoomWarnings == warnings + 1, "on: pasting a selection with no room pastes none of it");
+	}
+
+	// Clone with room / without room
+	resetRack();
+	{
+		app::ModuleWidget* a = addBlank(10, 0, 0);
+		a->cloneAction(false);
+		check(rack->getModules().size() == 2 && allInPlacements() && noOverlaps(), "on: cloning lands the copy in a rack");
+	}
+	resetRack();
+	fillLayout();
+	{
+		app::ModuleWidget* a = rack->getModules().front();
+		size_t n = rack->getModules().size();
+		a->cloneAction(false);
+		check(rack->getModules().size() == n, "on: cloning with no room is rejected");
+	}
+
+	quietWarnings = false;
 	resetRack();
 	settings::placementsEnabled = oldEnabled;
 	INFO("rack3d app self-test: %d failure(s)", failures);

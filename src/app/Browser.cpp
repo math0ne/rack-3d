@@ -33,6 +33,7 @@
 #include <helpers.hpp>
 #include <FuzzySearchDatabase.hpp>
 #include <componentlibrary.hpp>
+#include <rack3d/Placement.hpp>
 
 
 namespace rack {
@@ -100,6 +101,12 @@ static ModuleWidget* chooseModel(plugin::Model* model) {
 	APP->scene->rack->deselectAll();
 	APP->scene->rack->updateModuleOldPositions();
 	APP->scene->rack->addModuleAtMouse(moduleWidget);
+	// Rack 3D: no room in any rack
+	if (rack3d::rejectIfStray(moduleWidget)) {
+		delete h;
+		APP->scene->browser->hide();
+		return NULL;
+	}
 	h->push(APP->scene->rack->getModuleDragAction());
 
 	// Load template preset
@@ -265,6 +272,11 @@ struct ModelBox : widget::OpaqueWidget {
 	void onButton(const ButtonEvent& e) override {
 		if (e.action == GLFW_PRESS && e.button == GLFW_MOUSE_BUTTON_LEFT && (e.mods & RACK_MOD_MASK) == 0) {
 			ModuleWidget* mw = chooseModel(model);
+			// Rack 3D: no room in any rack
+			if (!mw) {
+				e.consume(this);
+				return;
+			}
 
 			// Pretend the moduleWidget was clicked so it can be dragged in the RackWidget
 			e.consume(mw);

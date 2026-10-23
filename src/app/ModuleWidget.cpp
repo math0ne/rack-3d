@@ -17,6 +17,7 @@
 #include <history.hpp>
 #include <string.hpp>
 #include <componentlibrary.hpp>
+#include <rack3d/Placement.hpp>
 
 
 namespace rack {
@@ -855,6 +856,11 @@ void ModuleWidget::cloneAction(bool cloneCables) {
 		APP->scene->rack->squeezeModulePos(clonedModuleWidget, clonedPos);
 	else
 		APP->scene->rack->setModulePosNearest(clonedModuleWidget, clonedPos);
+	// Rack 3D: no room in any rack
+	if (rack3d::rejectIfStray(clonedModuleWidget)) {
+		delete h;
+		return;
+	}
 	h->push(APP->scene->rack->getModuleDragAction());
 	APP->scene->rack->updateExpanders();
 
