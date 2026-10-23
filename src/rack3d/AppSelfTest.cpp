@@ -13,6 +13,7 @@
 #include <engine/Engine.hpp>
 #include <rack3d/PlacementRenderer.hpp>
 #include <rack3d/TilesView.hpp>
+#include <render3d/gl.hpp>
 #include <app/RackScrollWidget.hpp>
 #include <stb_image_write.h>
 #include <plugin.hpp>
@@ -750,6 +751,29 @@ int runAppSelfTest() {
 		check(glGetError() == GL_NO_ERROR, "tiles input: no GL errors");
 	}
 	setTilesViewShown(false);
+
+	// render3d GL helpers
+	{
+		while (glGetError() != GL_NO_ERROR) {}
+		render3d::RenderTarget rt;
+		check(rt.resize(64, 32, 4), "render3d: a 4x multisampled render target can be created");
+		rt.bind();
+		glClearColor(0.25f, 0.5f, 1.0f, 1.0f);
+		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+		rt.resolve();
+		uint8_t px[4] = {};
+		glBindFramebuffer(GL_FRAMEBUFFER, rt.fbo);
+		glReadPixels(10, 10, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, px);
+		glBindFramebuffer(GL_FRAMEBUFFER, 0);
+		check(std::abs(px[0] - 64) <= 1 && std::abs(px[1] - 128) <= 1 && px[2] == 255, "render3d: clearing and resolving reaches the texture");
+		GLuint program = render3d::compileProgram(
+			"#version 450 core\nlayout(location = 0) in vec3 pos;\nvoid main() { gl_Position = vec4(pos, 1.0); }\n",
+			"#version 450 core\nout vec4 color;\nvoid main() { color = vec4(1.0); }\n");
+		check(program != 0, "render3d: a GLSL 4.50 program compiles and links");
+		glDeleteProgram(program);
+		rt.destroy();
+		check(glGetError() == GL_NO_ERROR, "render3d: no GL errors");
+	}
 
 	quietWarnings = false;
 	resetRack();
