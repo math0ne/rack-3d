@@ -7,6 +7,8 @@
 #include <app/ParamWidget.hpp>
 #include <app/Knob.hpp>
 #include <app/SliderKnob.hpp>
+#include <app/SvgSlider.hpp>
+#include <app/Switch.hpp>
 #include <engine/ParamQuantity.hpp>
 #include <set>
 #include <app/PortWidget.hpp>
@@ -920,6 +922,66 @@ int runAppSelfTest() {
 				freq->getParamQuantity()->reset();
 			}
 
+			// Sliders and switches: add a VCA Mix (faders) next to the VCO
+			plugin::Model* mixerModel = plugin::getModel("Fundamental", "VCMixer");
+			app::ModuleWidget* mixer = NULL;
+			if (mixerModel) {
+				engine::Module* m = mixerModel->createModule();
+				APP->engine->addModule(m);
+				mixer = mixerModel->createModuleWidget(m);
+				mixer->box.pos = gridPx(30, 0);
+				APP->scene->rack->addModule(mixer);
+				APP->window->step();
+			}
+			size_t expectedParts = 0;
+			app::SvgSlider* fader = NULL;
+			app::Switch* button = NULL;
+			for (app::ModuleWidget* mw : APP->scene->rack->getModules()) {
+				for (app::ParamWidget* pw : mw->getParams()) {
+					if (app::SvgSlider* s = dynamic_cast<app::SvgSlider*>(pw)) {
+						expectedParts++;
+						if (!fader)
+							fader = s;
+					}
+					else if (app::Switch* sw = dynamic_cast<app::Switch*>(pw)) {
+						expectedParts++;
+						if (!button && !sw->momentary)
+							button = sw;
+					}
+				}
+			}
+			check(mixer && fader && view->parts.size() == expectedParts, "parts: every slider and switch has a 3D part");
+			check(PartDraw::kindForSwitch(8, 20, false) == PartDraw::TOGGLE && PartDraw::kindForSwitch(20, 8, true) == PartDraw::TOGGLE && PartDraw::kindForSwitch(20, 20, false) == PartDraw::BUTTON && PartDraw::kindForSwitch(20, 20, true) == PartDraw::LIGHT_BUTTON, "parts: elongated switches are toggles, round ones buttons");
+			auto partOver = [&](widget::Widget* w) -> const PartDraw* {
+				rack3d::Placement* p = APP->scene->rack->getLayout()->placementOf(w->getAncestorOfType<app::ModuleWidget>()->getGridBox());
+				if (!p)
+					return NULL;
+				render3d::Vec3 c = p->surface.toModel(w->getRelativeOffset(w->box.size.div(2), APP->scene->rack).minus(rack3d::Layout::getRackRect(*p).pos));
+				for (const PartDraw& part : view->parts) {
+					if (part.center.isNear(c, 1e-4f))
+						return &part;
+				}
+				return NULL;
+			};
+			if (fader) {
+				fader->getParamQuantity()->setScaledValue(0.f);
+				APP->window->step();
+				const PartDraw* low = partOver(fader->handle);
+				render3d::Vec3 lowCenter = low ? low->center : render3d::Vec3();
+				fader->getParamQuantity()->setScaledValue(1.f);
+				APP->window->step();
+				const PartDraw* high = partOver(fader->handle);
+				check(low && high && high->kind == PartDraw::SLIDER_HANDLE && (high->center - lowCenter).norm() > 0.05f, "parts: a fader's 3D cap follows its handle");
+				fader->getParamQuantity()->setScaledValue(0.7f);
+			}
+			if (button) {
+				button->getParamQuantity()->setValue(button->getParamQuantity()->getMaxValue());
+				APP->window->step();
+				const PartDraw* part = partOver(button);
+				check(part && part->pressed, "parts: a latched button's 3D cap is pressed in");
+				button->getParamQuantity()->reset();
+			}
+
 			// Close-up of the VCO's knobs, slightly from the side, for a visual check
 			render3d::Quat savedRotation = view->renderer.rotation;
 			float savedDistance = view->renderer.distance;
@@ -929,6 +991,20 @@ int runAppSelfTest() {
 			for (int i = 0; i < 10; i++)
 				APP->window->step();
 			APP->window->screenshot(asset::user("knobs.png"));
+			// Close-ups of the VCO's buttons and the mixer's faders: tilt the cube so they're near the view's centre
+			view->renderer.distance = 1.9f;
+			view->renderer.rotation = render3d::Quat::fromAxisAngle(render3d::Vec3(1, 0, 0), 0.3f) * render3d::Quat::fromAxisAngle(render3d::Vec3(0, 1, 0), 0.55f);
+			for (int i = 0; i < 10; i++)
+				APP->window->step();
+			APP->window->screenshot(asset::user("buttons.png"));
+			view->renderer.rotation = render3d::Quat::fromAxisAngle(render3d::Vec3(1, 0, 0), 0.75f) * render3d::Quat::fromAxisAngle(render3d::Vec3(0, 1, 0), -0.25f);
+			for (int i = 0; i < 10; i++)
+				APP->window->step();
+			APP->window->screenshot(asset::user("faders.png"));
+			if (mixer) {
+				APP->scene->rack->removeModule(mixer);
+				delete mixer;
+			}
 			view->renderer.rotation = savedRotation;
 			view->renderer.distance = savedDistance;
 		}

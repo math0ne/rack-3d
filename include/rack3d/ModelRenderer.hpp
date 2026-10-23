@@ -49,8 +49,43 @@ struct KnobDraw {
 };
 
 
+/** A slider handle or switch to draw in 3D over its 2D widget. Model space. */
+struct PartDraw {
+	enum Kind {
+		/** A slider's handle cap, at the handle's current position. */
+		SLIDER_HANDLE,
+		/** A push button (momentary) or latching button: a cap that sinks when pressed or latched. */
+		BUTTON,
+		/** A button with a light in it: just a raised bezel, so the light stays visible. */
+		LIGHT_BUTTON,
+		/** A toggle switch: a nut and a lever tilted along the switch's long side. */
+		TOGGLE,
+	};
+	Kind kind = BUTTON;
+	render3d::Vec3 center;
+	render3d::Vec3 right;
+	render3d::Vec3 up;
+	render3d::Vec3 normal;
+	/** The 2D widget's (or handle's) size, in model units. */
+	float width = 0;
+	float height = 0;
+	/** Buttons: pressed or latched on. */
+	bool pressed = false;
+	/** Toggles: position 0..1 (0 = down / left, 1 = up / right). */
+	float position = 0;
+
+	/** How to draw a Switch widget `width` x `height` rack px: noticeably elongated ones are toggles. */
+	static Kind kindForSwitch(float width, float height, bool hasLight) {
+		float aspect = std::fmax(width, height) / std::fmax(1e-3f, std::fmin(width, height));
+		if (aspect >= 1.4f)
+			return TOGGLE;
+		return hasLight ? LIGHT_BUTTON : BUTTON;
+	}
+};
+
+
 /** Renders the 3D model (for now the cube body) with each placement's live texture on its surface,
-3D knobs over the 2D ones, and the cables, into an offscreen multisampled render target.
+3D knobs, slider handles and switches over the 2D ones, and the cables, into an offscreen multisampled render target.
 */
 struct ModelRenderer {
 	/** Model orientation. */
@@ -69,7 +104,7 @@ struct ModelRenderer {
 	/** Renders at `width` x `height` pixels into `target`, with `cables` (world space) if given.
 	Leaves the default framebuffer bound.
 	*/
-	void render(int width, int height, Layout* layout, PlacementRenderer* textures, const CableScene* cables = NULL, const std::vector<KnobDraw>* knobs = NULL);
+	void render(int width, int height, Layout* layout, PlacementRenderer* textures, const CableScene* cables = NULL, const std::vector<KnobDraw>* knobs = NULL, const std::vector<PartDraw>* parts = NULL);
 	/** Projection * view * model. */
 	render3d::Mat4 getMVP(int width, int height) const;
 	/** Projection * view, for things in world space (cables). */
@@ -95,10 +130,16 @@ private:
 	render3d::Mesh knobMeshes[KnobDraw::NUM_STYLES];
 	render3d::Mesh knobCapMesh;
 	render3d::Mesh boxMesh;
+	/** Switch parts: button cap, bezel ring, toggle nut, toggle lever (unit sizes). */
+	render3d::Mesh buttonMesh;
+	render3d::Mesh bezelMesh;
+	render3d::Mesh nutMesh;
+	render3d::Mesh leverMesh;
 
 	void updateMeshes(Layout* layout);
 	void drawCables(const CableScene* cables, const render3d::Mat4& viewProj);
 	void drawKnobs(const std::vector<KnobDraw>& knobs, const render3d::Mat4& viewProj);
+	void drawParts(const std::vector<PartDraw>& parts, const render3d::Mat4& viewProj);
 };
 
 

@@ -7,6 +7,9 @@
 #include <rack3d/settings.hpp>
 #include <app/Knob.hpp>
 #include <app/SliderKnob.hpp>
+#include <app/SvgSlider.hpp>
+#include <app/Switch.hpp>
+#include <app/LightWidget.hpp>
 #include <engine/ParamQuantity.hpp>
 #include <app/Scene.hpp>
 #include <app/RackScrollWidget.hpp>
@@ -66,7 +69,7 @@ void ModelView::step() {
 	// Cables follow the model's motion this frame, and loose ends follow the mouse
 	cables.update(dt, renderer.rotation, scene->rack, scene->rack->getLayout(), getPointer());
 	mouseInView = false;
-	updateKnobs();
+	updateControls();
 
 	requestAfterRender([this]() {
 		renderModel();
@@ -331,8 +334,19 @@ void ModelView::updateTextureScales() {
 }
 
 
-void ModelView::updateKnobs() {
+/** Whether a widget has a light in it (e.g. a light button). */
+static bool hasLight(widget::Widget* w) {
+	for (widget::Widget* child : w->children) {
+		if (dynamic_cast<app::LightWidget*>(child) || hasLight(child))
+			return true;
+	}
+	return false;
+}
+
+
+void ModelView::updateControls() {
 	knobs.clear();
+	parts.clear();
 	app::RackWidget* rack = APP->scene->rack;
 	Layout* layout = rack->getLayout();
 	for (app::ModuleWidget* mw : rack->getModules()) {
@@ -342,12 +356,39 @@ void ModelView::updateKnobs() {
 		const Surface& s = p->surface;
 		math::Vec origin = Layout::getRackRect(*p).pos;
 		for (app::ParamWidget* pw : mw->getParams()) {
-			app::Knob* knob = dynamic_cast<app::Knob*>(pw);
-			// Sliders are knobs too, but get their own 3D parts
-			if (!knob || dynamic_cast<app::SliderKnob*>(pw) || !pw->isVisible())
-				continue;
 			engine::ParamQuantity* pq = pw->getParamQuantity();
-			if (!pq)
+			if (!pq || !pw->isVisible())
+				continue;
+			auto partAt = [&](widget::Widget* w, PartDraw::Kind kind) {
+				PartDraw part;
+				part.kind = kind;
+				part.center = s.toModel(w->getRelativeOffset(w->box.size.div(2), rack).minus(origin));
+				part.right = s.right;
+				part.up = -s.down;
+				part.normal = s.normal();
+				part.width = w->box.size.x * s.unitsPerPx;
+				part.height = w->box.size.y * s.unitsPerPx;
+				return part;
+			};
+
+			// Sliders: a cap over the handle, which the slider keeps at the current value
+			if (app::SvgSlider* slider = dynamic_cast<app::SvgSlider*>(pw)) {
+				if (slider->handle && slider->handle->isVisible())
+					parts.push_back(partAt(slider->handle, PartDraw::SLIDER_HANDLE));
+				continue;
+			}
+			// Switches: buttons sink when pressed or latched; toggles tilt their lever
+			if (app::Switch* sw = dynamic_cast<app::Switch*>(pw)) {
+				PartDraw part = partAt(sw, PartDraw::kindForSwitch(sw->box.size.x, sw->box.size.y, hasLight(sw)));
+				part.pressed = pq->getValue() > pq->getMinValue();
+				part.position = pq->getScaledValue();
+				parts.push_back(part);
+				continue;
+			}
+
+			app::Knob* knob = dynamic_cast<app::Knob*>(pw);
+			// Other slider-like knobs keep their 2D look
+			if (!knob || dynamic_cast<app::SliderKnob*>(pw))
 				continue;
 			KnobDraw k;
 			math::Vec center = pw->getRelativeOffset(pw->box.size.div(2), rack).minus(origin);
@@ -369,7 +410,7 @@ void ModelView::renderModel() {
 	float pixelRatio = APP->window->pixelRatio;
 	int width = std::max(1, (int) std::round(box.size.x * pixelRatio));
 	int height = std::max(1, (int) std::round(box.size.y * pixelRatio));
-	renderer.render(width, height, APP->scene->rack->getLayout(), getRenderer(), &cables, &knobs);
+	renderer.render(width, height, APP->scene->rack->getLayout(), getRenderer(), &cables, &knobs, &parts);
 }
 
 

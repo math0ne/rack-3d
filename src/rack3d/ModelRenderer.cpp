@@ -353,6 +353,92 @@ void ModelRenderer::drawKnobs(const std::vector<KnobDraw>& knobs, const Mat4& vi
 }
 
 
+/** The frame of a control on its rack: x = rack right, y = rack up, z = out of the face, origin at `center`. */
+static Mat4 controlFrame(Vec3 center, Vec3 right, Vec3 up, Vec3 normal) {
+	Mat4 f;
+	f.m[0] = right.x;
+	f.m[1] = right.y;
+	f.m[2] = right.z;
+	f.m[4] = up.x;
+	f.m[5] = up.y;
+	f.m[6] = up.z;
+	f.m[8] = normal.x;
+	f.m[9] = normal.y;
+	f.m[10] = normal.z;
+	f.m[12] = center.x;
+	f.m[13] = center.y;
+	f.m[14] = center.z;
+	return f;
+}
+
+
+void ModelRenderer::drawParts(const std::vector<PartDraw>& parts, const Mat4& viewProj) {
+	if (parts.empty())
+		return;
+	if (!buttonMesh.vao) {
+		using P = math::Vec;
+		buildRevolved(buttonMesh, {P(1, 0), P(1, 0.85f), P(0.88f, 1), P(0, 1)});
+		buildRevolved(bezelMesh, {P(1.18f, 0), P(1.18f, 0.22f), P(1.06f, 0.3f), P(1.0f, 0.3f), P(1.0f, 0)});
+		buildRevolved(nutMesh, {P(1, 0), P(1, 0.25f), P(0.8f, 0.32f), P(0, 0.32f)});
+		buildRevolved(leverMesh, {P(1, 0), P(1, 0.82f), P(1.5f, 0.88f), P(1.5f, 0.97f), P(1.2f, 1), P(0, 1)});
+		if (!boxMesh.vao)
+			buildUnitBox(boxMesh);
+	}
+	GLint mvpLoc = glGetUniformLocation(program, "uMvp");
+	GLint modelLoc = glGetUniformLocation(program, "uModel");
+	GLint colorLoc = glGetUniformLocation(program, "uColor");
+	glUniform1i(glGetUniformLocation(program, "uUseTex"), 0);
+	glDisable(GL_CULL_FACE);
+	Mat4 modelRotation = Mat4::rotate(rotation);
+	auto draw = [&](Mesh& mesh, const Mat4& model, Vec3 color) {
+		Mat4 mvp = viewProj * model;
+		glUniformMatrix4fv(mvpLoc, 1, GL_FALSE, mvp.m);
+		glUniformMatrix4fv(modelLoc, 1, GL_FALSE, model.m);
+		glUniform3f(colorLoc, color.x, color.y, color.z);
+		mesh.draw();
+	};
+	const Vec3 dark(0.1f, 0.1f, 0.11f), metal(0.72f, 0.73f, 0.75f), cap(0.82f, 0.82f, 0.84f);
+
+	for (const PartDraw& p : parts) {
+		Mat4 frame = modelRotation * controlFrame(p.center, p.right, p.up, p.normal);
+		float shortSide = std::fmin(p.width, p.height);
+		switch (p.kind) {
+			case PartDraw::SLIDER_HANDLE: {
+				// A cap the size of the 2D handle, raised off the face, with a line across its middle
+				float h = shortSide * 0.6f;
+				draw(boxMesh, frame * Mat4::translate(Vec3(0, -p.height / 2, 0)) * Mat4::scale(Vec3(p.width, p.height, h)), cap);
+				bool vertical = p.height < p.width;
+				Vec3 lineSize = vertical ? Vec3(p.width * 0.9f, p.height * 0.12f, 0.002f) : Vec3(p.width * 0.12f, p.height * 0.9f, 0.002f);
+				draw(boxMesh, frame * Mat4::translate(Vec3(0, -lineSize.y / 2, h)) * Mat4::scale(lineSize), dark);
+			} break;
+			case PartDraw::BUTTON: {
+				float r = shortSide / 2 * 0.8f;
+				// Sinks when pressed or latched
+				float h = r * (p.pressed ? 0.25f : 0.6f);
+				draw(bezelMesh, frame * Mat4::scale(Vec3(r, r, r)), metal);
+				draw(buttonMesh, frame * Mat4::scale(Vec3(r, r, h)), p.pressed ? Vec3(0.2f, 0.2f, 0.22f) : Vec3(0.13f, 0.13f, 0.14f));
+			} break;
+			case PartDraw::LIGHT_BUTTON: {
+				float r = shortSide / 2 * 0.85f;
+				draw(bezelMesh, frame * Mat4::scale(Vec3(r, r, r * (p.pressed ? 0.5f : 1.f))), metal);
+			} break;
+			case PartDraw::TOGGLE: {
+				// Nut on the face, lever tilted toward the switch's position along its long side
+				float nutR = shortSide / 2 * 0.75f;
+				draw(nutMesh, frame * Mat4::scale(Vec3(nutR, nutR, nutR)), metal);
+				bool vertical = p.height >= p.width;
+				float tilt = (p.position * 2 - 1) * 0.6f;
+				// Tilting toward +y (up) is negative around x; toward +x (right) is positive around y
+				render3d::Quat q = vertical ? render3d::Quat::fromAxisAngle(Vec3(1, 0, 0), -tilt) : render3d::Quat::fromAxisAngle(Vec3(0, 1, 0), tilt);
+				float leverR = nutR * 0.28f;
+				float leverLen = std::fmax(p.width, p.height) * 0.45f;
+				draw(leverMesh, frame * Mat4::translate(Vec3(0, 0, nutR * 0.3f)) * Mat4::rotate(q) * Mat4::scale(Vec3(leverR, leverR, leverLen)), metal);
+			} break;
+		}
+	}
+}
+
+
 void ModelRenderer::drawCables(const CableScene* cables, const Mat4& viewProj) {
 	GLint mvpLoc = glGetUniformLocation(program, "uMvp");
 	GLint modelLoc = glGetUniformLocation(program, "uModel");
@@ -404,7 +490,7 @@ void ModelRenderer::drawCables(const CableScene* cables, const Mat4& viewProj) {
 }
 
 
-void ModelRenderer::render(int width, int height, Layout* layout, PlacementRenderer* textures, const CableScene* cables, const std::vector<KnobDraw>* knobs) {
+void ModelRenderer::render(int width, int height, Layout* layout, PlacementRenderer* textures, const CableScene* cables, const std::vector<KnobDraw>* knobs, const std::vector<PartDraw>* parts) {
 	if (!program) {
 		program = render3d::compileProgram(VERT_SRC, FRAG_SRC);
 		if (!program)
@@ -460,6 +546,8 @@ void ModelRenderer::render(int width, int height, Layout* layout, PlacementRende
 
 	if (knobs)
 		drawKnobs(*knobs, getViewProjection(width, height));
+	if (parts)
+		drawParts(*parts, getViewProjection(width, height));
 	if (cables)
 		drawCables(cables, getViewProjection(width, height));
 
@@ -481,6 +569,10 @@ void ModelRenderer::destroy() {
 		m.destroy();
 	knobCapMesh.destroy();
 	boxMesh.destroy();
+	buttonMesh.destroy();
+	bezelMesh.destroy();
+	nutMesh.destroy();
+	leverMesh.destroy();
 	for (Face& f : faces)
 		f.mesh.destroy();
 	faces.clear();
