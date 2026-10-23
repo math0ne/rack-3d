@@ -7,6 +7,8 @@
 #include <app/Scene.hpp>
 #include <engine/Engine.hpp>
 #include <rack3d/PlacementRenderer.hpp>
+#include <rack3d/TilesView.hpp>
+#include <app/RackScrollWidget.hpp>
 #include <stb_image_write.h>
 #include <plugin.hpp>
 #include <patch.hpp>
@@ -508,6 +510,34 @@ int runAppSelfTest() {
 		r.render(APP->window->vg, rack);
 		check(APP->window->fbCount() == 0, "render: rendering again at the same scale redraws no panel caches");
 		r.clear();
+	}
+
+	// Tiles view: real frames through Window::step()
+	resetRack();
+	{
+		app::ModuleWidget* a = addBlank(10, 10, 16);
+		setTilesViewShown(true);
+		check(isTilesViewShown() && !APP->scene->rackScroll->isVisible(), "tiles: F6 view replaces the 2D rack");
+		for (int i = 0; i < 30; i++)
+			APP->window->step();
+		const PlacementRenderer::Target* t4 = getRenderer()->getTarget(4);
+		check(t4 != NULL, "tiles: the view requests placement textures");
+		if (t4) {
+			// Blank at grid (10, 16) is face 4 (rows 16-18), local (10 HP, row 0): centre (225, 190) rack px
+			float s = getRenderer()->scale;
+			check(readPixel(t4, 225 * s, 190 * s).r > 0.8f, "tiles: face 4's texture shows the Blank");
+			APP->window->screenshot(asset::user("tiles.png"));
+
+			// Move it between frames: the texture follows
+			rack->requestModulePos(a, gridPx(50, 16));
+			for (int i = 0; i < 5; i++)
+				APP->window->step();
+			s = getRenderer()->scale;
+			check(readPixel(t4, 225 * s, 190 * s).r < 0.5f && readPixel(t4, 825 * s, 190 * s).r > 0.8f, "tiles: textures update live when a module moves");
+		}
+		check(glGetError() == GL_NO_ERROR, "tiles: no GL errors over 35 frames");
+		setTilesViewShown(false);
+		check(!isTilesViewShown() && APP->scene->rackScroll->isVisible(), "tiles: hiding the view brings back the 2D rack");
 	}
 
 	quietWarnings = false;
