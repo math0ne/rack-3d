@@ -91,6 +91,10 @@ static void initSystemDir() {
 }
 
 
+/** Rack 3D: its own user folder (settings, plugins, autosave), so it never shares or moves stock Rack's "Rack2". */
+static const std::string USER_DIR_NAME = "Rack3D";
+
+
 static void initUserDir() {
 	if (!userDir.empty())
 		return;
@@ -114,30 +118,14 @@ static void initUserDir() {
 	assert(SUCCEEDED(localH));
 	std::string localDir = string::UTF16toUTF8(localBufW);
 
-	// Usually C:/Users/<username>/AppData/Local/Rack2
-	userDir = system::join(localDir, "Rack" + APP_VERSION_MAJOR);
-
-	// Get Documents path
-	WCHAR documentsBufW[MAX_PATH] = {};
-	HRESULT documentsH = SHGetFolderPathW(NULL, CSIDL_MYDOCUMENTS, NULL, SHGFP_TYPE_CURRENT, documentsBufW);
-	assert(SUCCEEDED(documentsH));
-	std::string documentsDir = string::UTF16toUTF8(documentsBufW);
-
-	// Rack <2.5.0 used "My Documents/Rack2"
-	oldUserDir = system::join(documentsDir, "Rack" + APP_VERSION_MAJOR);
+	// Usually C:/Users/<username>/AppData/Local/Rack3D
+	userDir = system::join(localDir, USER_DIR_NAME);
+	// No migration from an old location: Rack 3D has none, and stock Rack's must never be moved
 #endif
 
 #if defined ARCH_MAC
-	// Usually ~/Library/Application Support/Rack2
-	userDir = system::join(getApplicationSupportDir(), "Rack" + APP_VERSION_MAJOR);
-
-	// Get home directory
-	struct passwd* pw = getpwuid(getuid());
-	assert(pw);
-	std::string homeDir = pw->pw_dir;
-
-	// Rack <2.5.0 used ~/Documents/Rack2
-	oldUserDir = system::join(homeDir, "Documents", "Rack" + APP_VERSION_MAJOR);
+	// Usually ~/Library/Application Support/Rack3D
+	userDir = system::join(getApplicationSupportDir(), USER_DIR_NAME);
 #endif
 
 #if defined ARCH_LIN
@@ -158,11 +146,8 @@ static void initUserDir() {
 	else {
 		userDir = system::join(homeDir, ".local", "share");
 	}
-	// Usually ~/.local/share/Rack2
-	userDir = system::join(userDir, "Rack" + APP_VERSION_MAJOR);
-
-	// Rack <2.5.0 used ~/.Rack2
-	oldUserDir = system::join(homeDir, ".Rack" + APP_VERSION_MAJOR);
+	// Usually ~/.local/share/Rack3D
+	userDir = system::join(userDir, USER_DIR_NAME);
 #endif
 
 	// If userDir doesn't exist but oldUserDir does, attempt to move it and inform user.

@@ -8,7 +8,7 @@ namespace rack3d {
 namespace settings {
 
 
-bool placementsEnabled = false;
+bool placementsEnabled = true;
 RopeParams cableParams = defaultCableParams();
 float spinDamping = DEFAULT_SPIN_DAMPING;
 bool environment = true;
