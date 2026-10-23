@@ -7,6 +7,7 @@ every value is range-checked, so a typo fails here instead of making a silently 
 import json
 import math
 import os
+import random
 
 RACK = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 # models.json is generated beside the checkout, from the plugins installed there
@@ -51,6 +52,9 @@ class Module:
 
 	@property
 	def hp(self):
+		# Blank's width comes from its data, not its default size
+		if self.model == "Blank" and self.data:
+			return self.data["width"]
 		return self.info["hp"]
 
 	def out(self, name):
@@ -73,9 +77,10 @@ class Module:
 		return j
 
 
-def cable(out, inp, color):
+def cable(out, inp, color=None):
+	"""Connects `out` to `inp`. With no color, the cable gets a random shade of white or grey."""
 	(om, oid), (im, iid) = out, inp
-	cables.append({"id": len(cables) + 1, "outputModuleId": om.id, "outputId": oid, "inputModuleId": im.id, "inputId": iid, "color": color})
+	cables.append({"id": len(cables) + 1, "outputModuleId": om.id, "outputId": oid, "inputModuleId": im.id, "inputId": iid, "color": color or shade()})
 
 
 def place(face, row, *ms):
@@ -210,10 +215,61 @@ place(2, 0, veils_a, veils_b, mixer)     # back: mix
 place(2, 1, merge, glide, split)         #       pitch glide
 place(3, 0, delay, lfo_a)                # left: delay + timbre LFO
 place(4, 0, clouds, plateau)             # top: Clouds + Plateau
-place(5, 0, audio)                       # bottom: out
+notes = Module("Core", "Notes", data={"text": "Chord drone\n\nCmaj9 - Am9 - Fmaj9 - G6/9, about 14 s each.\n"
+	"Front/right: voices + chord sequencers\nBack: mix + pitch glide\nLeft: delay\nTop: Clouds -> Plateau\n"
+	"Bottom: audio out\n\nEverything unpatched is decoration."})
+place(5, 0, audio, notes)                # bottom: out
 
-# --- Cables ---
-AUDIO, MOD, OUT_C, PITCH = "#f3374b", "#3695ef", "#ffb437", "#33b66b"
+
+# --- Decoration: fill every row's free space with random unpatched modules, and Blanks where only a few HP remain ---
+# Audio and MIDI interfaces are left out so nothing grabs a device.
+FILL_SEED = 7
+FILL_POOL = [("Fundamental", k) for k in MODELS["Fundamental"] if k != "version"] + \
+	[("AudibleInstruments", k) for k in MODELS["AudibleInstruments"] if k != "version"] + [("Core", "Notes")]
+# Below this many HP, a gap gets a Blank instead of another module
+BLANK_BELOW = 6
+BLANK_MIN = 3
+
+
+def fill_gap(rng, x, y, width):
+	while width > 0:
+		if width < BLANK_BELOW:
+			m = Module("Core", "Blank", data={"width": width})
+		else:
+			# A module may leave nothing, or at least BLANK_MIN HP for a Blank
+			fits = [pm for pm in FILL_POOL if MODELS[pm[0]][pm[1]]["hp"] == width or
+				width - MODELS[pm[0]][pm[1]]["hp"] >= BLANK_MIN]
+			m = Module(*rng.choice(fits))
+		m.pos = (x, y)
+		x += m.hp
+		width -= m.hp
+
+
+def fill_rows():
+	rng = random.Random(FILL_SEED)
+	for face in range(len(FACES)):
+		for row in range(RACK_ROWS):
+			y = face * (RACK_ROWS + 1) + row
+			taken = sorted((m.pos[0], m.pos[0] + m.hp) for m in modules if m.pos and m.pos[1] == y)
+			x = 0
+			for start, end in taken + [(RACK_HP, RACK_HP)]:
+				fill_gap(rng, x, y, start - x)
+				x = end
+			assert sum(m.hp for m in modules if m.pos[1] == y) == RACK_HP, f"{FACES[face]} row {row} not full"
+
+
+fill_rows()
+
+# --- Cables: whites and greys, each cable its own shade (seeded, so the patch is the same every time) ---
+CABLE_SHADES = ["#ffffff", "#f2f0ec", "#e3e3e3", "#d0d0d0", "#bdbdbd", "#a8a8a8", "#949494", "#7d7d7d"]
+cable_rng = random.Random(11)
+
+
+def shade():
+	return cable_rng.choice(CABLE_SHADES)
+
+
+AUDIO = MOD = OUT_C = PITCH = None
 cable(clock.out("Square"), seq_a.inp("Clock"), PITCH)
 cable(clock.out("Square"), seq_b.inp("Clock"), PITCH)
 for i, (seq, row) in enumerate([(seq_a, 1), (seq_a, 2), (seq_a, 3), (seq_b, 1), (seq_b, 2), (seq_b, 3)]):
